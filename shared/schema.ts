@@ -20,6 +20,9 @@ export const people = pgTable("people", {
   tags: jsonb("tags").notNull().default(sql`'[]'::jsonb`).$type<string[]>(),
   // Stored as "MM-DD" so a birth year isn't required.
   birthday: text("birthday"),
+  facebookUrl: text("facebook_url"),
+  instagramUrl: text("instagram_url"),
+  linkedinUrl: text("linkedin_url"),
   relationshipTier: relationshipTierEnum("relationship_tier").notNull().default("acquaintance"),
   // Denormalized from `interactions` for cheap reminder queries — kept in
   // sync by storage.ts on every interaction insert/update/delete.
@@ -36,6 +39,9 @@ export const insertPersonSchema = createInsertSchema(people).pick({
   location: true,
   tags: true,
   birthday: true,
+  facebookUrl: true,
+  instagramUrl: true,
+  linkedinUrl: true,
   relationshipTier: true,
 });
 export const updatePersonSchema = insertPersonSchema.partial();

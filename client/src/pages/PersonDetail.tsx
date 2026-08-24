@@ -118,6 +118,28 @@ export default function PersonDetail({ id }: { id: string }) {
                   <dt className="text-muted-foreground">Tags</dt>
                   <dd>{person.tags.length ? person.tags.join(", ") : "—"}</dd>
                 </div>
+                {(person.facebookUrl || person.instagramUrl || person.linkedinUrl) && (
+                  <div className="col-span-2">
+                    <dt className="text-muted-foreground">Profiles</dt>
+                    <dd className="flex flex-wrap gap-3">
+                      {person.facebookUrl && (
+                        <a href={person.facebookUrl} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4">
+                          Facebook
+                        </a>
+                      )}
+                      {person.instagramUrl && (
+                        <a href={person.instagramUrl} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4">
+                          Instagram
+                        </a>
+                      )}
+                      {person.linkedinUrl && (
+                        <a href={person.linkedinUrl} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4">
+                          LinkedIn
+                        </a>
+                      )}
+                    </dd>
+                  </div>
+                )}
               </dl>
             )}
           </CardContent>

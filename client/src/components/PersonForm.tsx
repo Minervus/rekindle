@@ -14,6 +14,9 @@ interface FormValues {
   location: string;
   tagsInput: string;
   birthday: string;
+  facebookUrl: string;
+  instagramUrl: string;
+  linkedinUrl: string;
   relationshipTier: RelationshipTier;
 }
 
@@ -26,6 +29,9 @@ function toFormValues(person?: Person): FormValues {
     location: person?.location ?? "",
     tagsInput: person?.tags?.join(", ") ?? "",
     birthday: person?.birthday ?? "",
+    facebookUrl: person?.facebookUrl ?? "",
+    instagramUrl: person?.instagramUrl ?? "",
+    linkedinUrl: person?.linkedinUrl ?? "",
     relationshipTier: person?.relationshipTier ?? "acquaintance",
   };
 }
@@ -55,6 +61,9 @@ export default function PersonForm({
         .map((t) => t.trim())
         .filter(Boolean),
       birthday: values.birthday.trim() || null,
+      facebookUrl: values.facebookUrl.trim() || null,
+      instagramUrl: values.instagramUrl.trim() || null,
+      linkedinUrl: values.linkedinUrl.trim() || null,
       relationshipTier: values.relationshipTier,
     } as InsertPerson);
   };
@@ -107,6 +116,18 @@ export default function PersonForm({
         <div className="col-span-2 space-y-1.5">
           <Label htmlFor="tagsInput">Tags (comma separated)</Label>
           <Input id="tagsInput" placeholder="climbing, ex-coworker" {...form.register("tagsInput")} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="facebookUrl">Facebook profile</Label>
+          <Input id="facebookUrl" placeholder="https://facebook.com/..." {...form.register("facebookUrl")} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="instagramUrl">Instagram profile</Label>
+          <Input id="instagramUrl" placeholder="https://instagram.com/..." {...form.register("instagramUrl")} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="linkedinUrl">LinkedIn profile</Label>
+          <Input id="linkedinUrl" placeholder="https://linkedin.com/in/..." {...form.register("linkedinUrl")} />
         </div>
       </div>
       <Button type="submit" disabled={isSubmitting}>
