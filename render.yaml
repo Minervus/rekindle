@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: rekindle
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-haiku-4-5
+      - key: JWT_SECRET
+        sync: false
+      - key: AUTH_PASSPHRASE_HASH
+        sync: false
