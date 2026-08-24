@@ -5,6 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <title>Rekindle</title>
+    <!--
+      Applies the saved theme before first paint so a dark-mode user never
+      sees a flash of the light palette while the bundle loads. React's
+      ThemeProvider re-applies the same class on mount; the storage key here
+      must stay in sync with THEME_STORAGE_KEY in src/hooks/useTheme.tsx.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("rekindle:theme");
+          var dark =
+            stored === "dark" ||
+            ((stored === "system" || !stored) && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (e) {
+          /* localStorage unavailable — fall through to the light default. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

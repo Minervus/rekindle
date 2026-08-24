@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown, Monitor, Moon, Sun } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,36 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useStageConfigs } from "@/hooks/useStageConfigs";
+import { useTheme, type ThemeMode } from "@/hooks/useTheme";
 import type { AppSettings, StageConfig } from "@shared/schema";
+
+// Theme lives in localStorage, not the settings table — it's per-device, so
+// it never round-trips through /api/settings.
+const THEME_OPTIONS: { mode: ThemeMode; label: string; icon: typeof Sun }[] = [
+  { mode: "light", label: "Light", icon: Sun },
+  { mode: "dark", label: "Dark", icon: Moon },
+  { mode: "system", label: "System", icon: Monitor },
+];
+
+function AppearanceSetting() {
+  const { mode, resolved, setMode } = useTheme();
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        {THEME_OPTIONS.map(({ mode: option, label, icon: Icon }) => (
+          <Button key={option} size="sm" variant={mode === option ? "default" : "outline"} onClick={() => setMode(option)}>
+            <Icon className="h-4 w-4" />
+            {label}
+          </Button>
+        ))}
+      </div>
+      {mode === "system" && (
+        <p className="text-xs text-muted-foreground">Following your device — currently {resolved}.</p>
+      )}
+    </div>
+  );
+}
 
 function StageRow({ stage, isFirst, isLast, onMove }: { stage: StageConfig; isFirst: boolean; isLast: boolean; onMove: (dir: -1 | 1) => void }) {
   const [editing, setEditing] = useState(false);
@@ -256,6 +285,15 @@ export default function Settings() {
   return (
     <AppShell>
       <h1 className="text-2xl font-semibold mb-6">Settings</h1>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-lg">Appearance</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AppearanceSetting />
+        </CardContent>
+      </Card>
 
       <Card className="mb-6">
         <CardHeader>

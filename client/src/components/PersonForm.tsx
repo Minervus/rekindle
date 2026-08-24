@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import PersonAvatar from "@/components/PersonAvatar";
 import { fileToResizedDataUrl } from "@/lib/image";
@@ -15,6 +16,7 @@ interface FormValues {
   company: string;
   role: string;
   location: string;
+  notes: string;
   tagsInput: string;
   birthday: string;
   photoUrl: string;
@@ -31,6 +33,7 @@ function toFormValues(person?: Person): FormValues {
     company: person?.company ?? "",
     role: person?.role ?? "",
     location: person?.location ?? "",
+    notes: person?.notes ?? "",
     tagsInput: person?.tags?.join(", ") ?? "",
     birthday: person?.birthday ?? "",
     photoUrl: person?.photoUrl ?? "",
@@ -46,11 +49,19 @@ export default function PersonForm({
   onSubmit,
   isSubmitting,
   submitLabel = "Save",
+  showNotes = true,
 }: {
   person?: Person;
   onSubmit: (input: InsertPerson) => void;
   isSubmitting?: boolean;
   submitLabel?: string;
+  /**
+   * Off on the person page, where notes have their own inline-editable card —
+   * rendering both would put two editors for the same field on screen at once.
+   * When off this form leaves `notes` out of the submitted payload entirely,
+   * so the card stays the only writer.
+   */
+  showNotes?: boolean;
 }) {
   const form = useForm<FormValues>({ defaultValues: toFormValues(person) });
   const { toast } = useToast();
@@ -83,6 +94,12 @@ export default function PersonForm({
       instagramUrl: values.instagramUrl.trim() || null,
       linkedinUrl: values.linkedinUrl.trim() || null,
       relationshipTier: values.relationshipTier,
+      // Only send notes when this form is actually showing the field. While
+      // it's hidden, `values.notes` is frozen at whatever the person had when
+      // the form mounted, and the notes card edits the same column live — so
+      // submitting the stale copy would silently roll those edits back. PATCH
+      // treats an absent key as "leave this column alone".
+      ...(showNotes ? { notes: values.notes.trim() || null } : {}),
     } as InsertPerson);
   };
 
@@ -149,6 +166,20 @@ export default function PersonForm({
           <Label htmlFor="tagsInput">Tags (comma separated)</Label>
           <Input id="tagsInput" placeholder="climbing, ex-coworker" {...form.register("tagsInput")} />
         </div>
+        {showNotes && (
+          <div className="col-span-2 space-y-1.5">
+            <Label htmlFor="notes">Notes</Label>
+            <Textarea
+              id="notes"
+              rows={5}
+              placeholder="Background worth remembering — family, injuries, what they're training for, how they like to be contacted."
+              {...form.register("notes")}
+            />
+            <p className="text-xs text-muted-foreground">
+              Standing context about this person. Log what actually happened as interactions instead.
+            </p>
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="facebookUrl">Facebook profile</Label>
           <Input id="facebookUrl" placeholder="https://facebook.com/..." {...form.register("facebookUrl")} />

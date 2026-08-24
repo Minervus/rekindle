@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
+import { Search } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AppShell from "@/components/layout/AppShell";
 import PersonForm from "@/components/PersonForm";
@@ -13,8 +14,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { RELATIONSHIP_TIER_LABELS, computeNextReconnectAt, computeDaysOverdue } from "@shared/relationshipTiers";
+import { matchSearchFields, personSearchFields, searchTerms, type SearchField } from "@shared/personSearch";
 import type { InsertPerson, Person } from "@shared/schema";
 import type { Warmth } from "@shared/warmth";
+
+// Fields already visible on the row — repeating them as a "why this
+// matched" line would just be noise.
+const IMPLICIT_FIELDS = new Set(["Name", "Role", "Company", "Location", "Tier"]);
 
 export default function People() {
   const [search, setSearch] = useState("");
@@ -36,7 +42,20 @@ export default function People() {
     },
   });
 
-  const filtered = (people ?? []).filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+  // Matches any field on the profile, not just the name — see
+  // shared/personSearch.ts, which the header's global search also uses.
+  const filtered = useMemo(() => {
+    const terms = searchTerms(search);
+    const out: { person: Person & { warmth: Warmth }; reasons: SearchField[] }[] = [];
+
+    for (const person of people ?? []) {
+      const matches = matchSearchFields(personSearchFields(person), terms);
+      if (!matches) continue;
+      out.push({ person, reasons: matches.filter((m) => !IMPLICIT_FIELDS.has(m.label)) });
+    }
+
+    return out;
+  }, [people, search]);
 
   return (
     <AppShell>
@@ -53,7 +72,15 @@ export default function People() {
         </Card>
       )}
 
-      <Input placeholder="Search by name..." value={search} onChange={(e) => setSearch(e.target.value)} className="mb-4 max-w-sm" />
+      <div className="relative mb-4 max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Input
+          placeholder="Search name, tag, company, location…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
 
       {isLoading && (
         <div className="space-y-2">
@@ -62,10 +89,14 @@ export default function People() {
         </div>
       )}
 
-      {!isLoading && filtered.length === 0 && <p className="text-muted-foreground text-sm">No one here yet.</p>}
+      {!isLoading && filtered.length === 0 && (
+        <p className="text-muted-foreground text-sm">
+          {search.trim() ? `No one matches “${search.trim()}”.` : "No one here yet."}
+        </p>
+      )}
 
       <div className="space-y-2">
-        {filtered.map((person) => {
+        {filtered.map(({ person, reasons }) => {
           const nextReconnectAt = computeNextReconnectAt(
             person.lastInteractionAt ? new Date(person.lastInteractionAt) : null,
             new Date(person.createdAt),
@@ -87,6 +118,14 @@ export default function People() {
                       <div className="text-sm text-muted-foreground">
                         {[person.role, person.company].filter(Boolean).join(" at ") || person.location || "—"}
                       </div>
+                      {reasons.length > 0 && (
+                        <div className="text-xs text-muted-foreground">
+                          {reasons
+                            .slice(0, 3)
+                            .map((r) => `${r.label}: ${r.value}`)
+                            .join(" · ")}
+                        </div>
+                      )}
                       <WarmthMeter score={person.warmth.score} level={person.warmth.level} className="mt-1" />
                     </div>
                   </div>
