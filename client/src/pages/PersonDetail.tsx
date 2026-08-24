@@ -6,6 +6,7 @@ import PersonForm from "@/components/PersonForm";
 import InteractionForm from "@/components/InteractionForm";
 import SuggestionPanel from "@/components/SuggestionPanel";
 import PersonAvatar from "@/components/PersonAvatar";
+import PersonNotes from "@/components/PersonNotes";
 import WarmthMeter from "@/components/WarmthMeter";
 import PipelineCard from "@/components/PipelineCard";
 import { useStageConfigs } from "@/hooks/useStageConfigs";
@@ -130,7 +131,12 @@ export default function PersonDetail({ id }: { id: string }) {
           </CardHeader>
           <CardContent>
             {editing ? (
-              <PersonForm person={person} onSubmit={(input) => updatePerson.mutate(input)} isSubmitting={updatePerson.isPending} />
+              <PersonForm
+                person={person}
+                onSubmit={(input) => updatePerson.mutate(input)}
+                isSubmitting={updatePerson.isPending}
+                showNotes={false}
+              />
             ) : (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
@@ -179,6 +185,8 @@ export default function PersonDetail({ id }: { id: string }) {
             )}
           </CardContent>
         </Card>
+
+        <PersonNotes personId={person.id} notes={person.notes} />
 
         <PipelineCard personId={person.id} lead={person.lead} stages={stages} />
 

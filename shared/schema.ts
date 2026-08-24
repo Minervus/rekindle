@@ -18,6 +18,11 @@ export const people = pgTable("people", {
   company: text("company"),
   role: text("role"),
   location: text("location"),
+  // Standing background on someone — kids' names, injuries, what they're
+  // training for. Deliberately separate from `interactions`, which stays a
+  // dated log of what actually happened; this is the durable summary you'd
+  // want to skim before reaching out.
+  notes: text("notes"),
   tags: jsonb("tags").notNull().default(sql`'[]'::jsonb`).$type<string[]>(),
   // Stored as "MM-DD" so a birth year isn't required.
   birthday: text("birthday"),
@@ -47,6 +52,7 @@ export const insertPersonSchema = createInsertSchema(people).pick({
   company: true,
   role: true,
   location: true,
+  notes: true,
   tags: true,
   birthday: true,
   photoUrl: true,

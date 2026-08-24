@@ -39,7 +39,7 @@ const SuggestionSchema = z.object({
 });
 export type ReconnectSuggestionOutput = z.infer<typeof SuggestionSchema>;
 
-const SYSTEM_PROMPT = `You help the user reconnect thoughtfully with people in their personal network. You are given a contact's profile and a dated log of past interaction notes. Draft an opening line and concrete talking points that reference specific things from the notes — not generic advice. If the notes are sparse, say something honest and low-pressure rather than inventing details.`;
+const SYSTEM_PROMPT = `You help the user reconnect thoughtfully with people in their personal network. You are given a contact's profile, the user's standing notes about them, and a dated log of past interaction notes. Draft an opening line and concrete talking points that reference specific things from the profile notes and the interaction log — not generic advice. If the notes are sparse, say something honest and low-pressure rather than inventing details.`;
 
 function formatHistory(person: Person, personInteractions: Interaction[]): string {
   const header = [
@@ -59,7 +59,11 @@ function formatHistory(person: Person, personInteractions: Interaction[]): strin
       .map((i) => `- ${i.occurredAt.toISOString().slice(0, 10)}: ${i.notes}`)
       .join("\n") || "(no interactions logged yet)";
 
-  return `${header}\n\nInteraction history (oldest to newest):\n${log}`;
+  // Standing notes are undated background the user has accumulated — worth
+  // its own section so the model doesn't read it as a recent event.
+  const standingNotes = person.notes?.trim() ? `\n\nWhat the user knows about them:\n${person.notes.trim()}` : "";
+
+  return `${header}${standingNotes}\n\nInteraction history (oldest to newest):\n${log}`;
 }
 
 export async function generateReconnectSuggestion(
