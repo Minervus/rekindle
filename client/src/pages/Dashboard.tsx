@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import AppShell from "@/components/layout/AppShell";
 import ReconnectCard from "@/components/ReconnectCard";
+import PipelineStrip from "@/components/PipelineStrip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { Person } from "@shared/schema";
@@ -18,6 +19,8 @@ export default function Dashboard() {
 
   return (
     <AppShell>
+      <PipelineStrip />
+
       <div className="flex items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-semibold">Due for reconnect</h1>
         <Link href="/people">

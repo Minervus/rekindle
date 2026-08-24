@@ -7,14 +7,17 @@ import InteractionForm from "@/components/InteractionForm";
 import SuggestionPanel from "@/components/SuggestionPanel";
 import PersonAvatar from "@/components/PersonAvatar";
 import WarmthMeter from "@/components/WarmthMeter";
+import PipelineCard from "@/components/PipelineCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import type { InsertInteraction, InsertPerson, Interaction, Person } from "@shared/schema";
+import type { InsertInteraction, InsertPerson, Interaction, Person, Lead } from "@shared/schema";
 import type { Warmth } from "@shared/warmth";
+
+type PersonDetailData = Person & { warmth: Warmth; lead: Lead | null };
 
 export default function PersonDetail({ id }: { id: string }) {
   const [, navigate] = useLocation();
@@ -22,7 +25,7 @@ export default function PersonDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: person, isLoading } = useQuery<Person & { warmth: Warmth }>({ queryKey: ["/api/people", id] });
+  const { data: person, isLoading } = useQuery<PersonDetailData>({ queryKey: ["/api/people", id] });
   const { data: interactions, isLoading: interactionsLoading } = useQuery<Interaction[]>({
     queryKey: ["/api/people", id, "interactions"],
   });
@@ -48,7 +51,7 @@ export default function PersonDetail({ id }: { id: string }) {
   });
 
   const addInteraction = useMutation({
-    mutationFn: async (input: Pick<InsertInteraction, "occurredAt" | "notes">) => {
+    mutationFn: async (input: Pick<InsertInteraction, "occurredAt" | "notes" | "kind">) => {
       const res = await apiRequest("POST", `/api/people/${id}/interactions`, input);
       return res.json() as Promise<Interaction>;
     },
@@ -56,6 +59,17 @@ export default function PersonDetail({ id }: { id: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/people", id, "interactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/people"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reminders/due"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", "touches"] });
+    },
+  });
+
+  const addToPersonalContacts = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/people/${id}`, { isPersonalContact: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/people", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/people"] });
+      toast({ title: "Added to personal contacts" });
     },
   });
 
@@ -88,6 +102,16 @@ export default function PersonDetail({ id }: { id: string }) {
               </div>
             </div>
             <div className="flex gap-2">
+              {!person.isPersonalContact && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addToPersonalContacts.mutate()}
+                  disabled={addToPersonalContacts.isPending}
+                >
+                  Add to personal contacts
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => setEditing((v) => !v)}>
                 {editing ? "Cancel" : "Edit"}
               </Button>
@@ -154,6 +178,8 @@ export default function PersonDetail({ id }: { id: string }) {
           </CardContent>
         </Card>
 
+        <PipelineCard personId={person.id} lead={person.lead} />
+
         <SuggestionPanel personId={person.id} />
 
         <Card>
@@ -161,7 +187,12 @@ export default function PersonDetail({ id }: { id: string }) {
             <CardTitle className="text-lg">Interactions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <InteractionForm onSubmit={(input) => addInteraction.mutate(input)} isSubmitting={addInteraction.isPending} />
+            <InteractionForm
+              defaultKind={person.lead ? "outreach" : "personal"}
+              showKindToggle={!!person.lead}
+              onSubmit={(input) => addInteraction.mutate(input)}
+              isSubmitting={addInteraction.isPending}
+            />
 
             {interactionsLoading && <Skeleton className="h-16 w-full" />}
 

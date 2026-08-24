@@ -7,6 +7,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import People from "@/pages/People";
 import PersonDetail from "@/pages/PersonDetail";
+import Leads from "@/pages/Leads";
 import NotFound from "@/pages/NotFound";
 
 function Router() {
@@ -31,6 +32,13 @@ function Router() {
         {(params) => (
           <ProtectedRoute>
             <PersonDetail id={params.id} />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/leads">
+        {() => (
+          <ProtectedRoute>
+            <Leads />
           </ProtectedRoute>
         )}
       </Route>

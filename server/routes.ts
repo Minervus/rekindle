@@ -7,6 +7,9 @@ import {
   insertInteractionSchema,
   updateInteractionSchema,
   loginSchema,
+  createLeadRequestSchema,
+  updateLeadSchema,
+  updateSettingsSchema,
 } from "@shared/schema";
 import { verifyPassphrase, issueToken, requireAuth } from "./auth";
 import * as storage from "./storage";
@@ -49,6 +52,8 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.use("/api/people", requireAuth);
   app.use("/api/interactions", requireAuth);
   app.use("/api/reminders", requireAuth);
+  app.use("/api/leads", requireAuth);
+  app.use("/api/settings", requireAuth);
 
   app.get(
     "/api/people",
@@ -184,6 +189,105 @@ export async function registerRoutes(app: Express): Promise<void> {
       const suggestion = await storage.getLatestSuggestion(req.params.id);
       if (!suggestion) return res.status(404).json({ error: "No suggestion yet" });
       res.json(suggestion);
+    }),
+  );
+
+  // Registered before /api/leads/:id-shaped routes for clarity, even though
+  // there's no path-param collision today.
+  app.get(
+    "/api/leads/touches",
+    asyncHandler(async (req, res) => {
+      const weeks = Math.max(1, parseInt(String(req.query.weeks ?? "12"), 10) || 12);
+      res.json(await storage.listOutreachTouches(weeks));
+    }),
+  );
+
+  app.get(
+    "/api/leads",
+    asyncHandler(async (_req, res) => {
+      res.json(await storage.listLeads());
+    }),
+  );
+
+  app.post(
+    "/api/leads",
+    asyncHandler(async (req, res) => {
+      try {
+        const input = createLeadRequestSchema.parse(req.body);
+        let personId: string;
+
+        if ("person" in input) {
+          const { person, ...leadInput } = input;
+          const created = await storage.createLeadWithPerson(person, leadInput);
+          personId = created.person.id;
+        } else {
+          const existingPerson = await storage.getPerson(input.personId);
+          if (!existingPerson) return res.status(404).json({ error: "Person not found" });
+
+          const existingLead = await storage.getLeadByPersonId(input.personId);
+          if (existingLead) return res.status(409).json({ error: "This person is already in the pipeline" });
+
+          await storage.createLead(input);
+          personId = input.personId;
+        }
+
+        // Re-fetch so the response always has the same LeadWithPerson shape
+        // (matching GET /api/leads) regardless of which path was taken.
+        res.status(201).json(await storage.getLeadWithPersonByPersonId(personId));
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.patch(
+    "/api/leads/:id",
+    asyncHandler(async (req, res) => {
+      try {
+        const input = updateLeadSchema.parse(req.body);
+        const lead = await storage.updateLead(req.params.id, input);
+        if (!lead) return res.status(404).json({ error: "Not found" });
+        res.json(lead);
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.delete(
+    "/api/leads/:id",
+    asyncHandler(async (req, res) => {
+      const deletePerson = req.query.deletePerson === "true";
+      await storage.deleteLead(req.params.id, { deletePerson });
+      res.status(204).end();
+    }),
+  );
+
+  app.get(
+    "/api/settings",
+    asyncHandler(async (_req, res) => {
+      res.json(await storage.getSettings());
+    }),
+  );
+
+  app.patch(
+    "/api/settings",
+    asyncHandler(async (req, res) => {
+      try {
+        const input = updateSettingsSchema.parse(req.body);
+        res.json(await storage.updateSettings(input));
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
     }),
   );
 }
