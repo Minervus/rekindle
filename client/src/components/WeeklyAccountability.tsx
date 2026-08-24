@@ -1,31 +1,12 @@
-import { useState } from "react";
 import { Link } from "wouter";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import GoalMeter from "@/components/GoalMeter";
-import { apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { useWeeklyAccountability } from "@/hooks/useWeeklyAccountability";
-import { LEAD_STAGE_LABELS } from "@shared/leadStages";
+import { useStageConfigs } from "@/hooks/useStageConfigs";
 
 export default function WeeklyAccountability() {
-  const [editingGoal, setEditingGoal] = useState(false);
-  const [goalInput, setGoalInput] = useState("");
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
+  const { label: stageLabel } = useStageConfigs();
   const accountability = useWeeklyAccountability();
-
-  const updateGoal = useMutation({
-    mutationFn: async (weeklyOutreachGoal: number) => apiRequest("PATCH", "/api/settings", { weeklyOutreachGoal }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-      setEditingGoal(false);
-      toast({ title: "Goal updated" });
-    },
-  });
 
   if (!accountability.isReady) return null;
   const { goal, buckets, currentWeek, streak, daysLeft, untouched, leads } = accountability;
@@ -37,40 +18,9 @@ export default function WeeklyAccountability() {
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg">This week</CardTitle>
-        {editingGoal ? (
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const n = parseInt(goalInput, 10);
-              if (n > 0) updateGoal.mutate(n);
-            }}
-          >
-            <Input
-              type="number"
-              min={1}
-              max={200}
-              value={goalInput}
-              onChange={(e) => setGoalInput(e.target.value)}
-              className="w-20 h-8"
-              autoFocus
-            />
-            <Button type="submit" size="sm" disabled={updateGoal.isPending}>
-              Save
-            </Button>
-          </form>
-        ) : (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground hover-elevate rounded px-1.5 py-1"
-            onClick={() => {
-              setGoalInput(String(goal));
-              setEditingGoal(true);
-            }}
-          >
-            goal: {goal}
-          </button>
-        )}
+        <Link href="/settings" className="text-xs text-muted-foreground hover-elevate rounded px-1.5 py-1">
+          goal: {goal}
+        </Link>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
@@ -116,7 +66,7 @@ export default function WeeklyAccountability() {
                     className="text-sm hover-elevate rounded px-1.5 py-1 -mx-1.5 flex items-center justify-between"
                   >
                     <span>{lead.person.name}</span>
-                    <span className="text-xs text-muted-foreground">{LEAD_STAGE_LABELS[lead.stage]}</span>
+                    <span className="text-xs text-muted-foreground">{stageLabel(lead.stage)}</span>
                   </Link>
                 </li>
               ))}

@@ -4,28 +4,37 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import LeadStageSelect from "@/components/LeadStageSelect";
-import type { CreateLeadRequest } from "@shared/schema";
-import type { LeadStage } from "@shared/leadStages";
+import type { CreateLeadRequest, StageConfig } from "@shared/schema";
 
 interface FormValues {
   name: string;
   company: string;
   location: string;
   instagramUrl: string;
-  stage: LeadStage;
+  stage: string;
   source: string;
   fitnessGoal: string;
 }
 
 export default function LeadForm({
+  stages,
   onSubmit,
   isSubmitting,
 }: {
+  stages: StageConfig[];
   onSubmit: (input: CreateLeadRequest) => void;
   isSubmitting?: boolean;
 }) {
   const form = useForm<FormValues>({
-    defaultValues: { name: "", company: "", location: "", instagramUrl: "", stage: "new", source: "", fitnessGoal: "" },
+    defaultValues: {
+      name: "",
+      company: "",
+      location: "",
+      instagramUrl: "",
+      stage: stages[0]?.key ?? "",
+      source: "",
+      fitnessGoal: "",
+    },
   });
 
   const handleSubmit = (values: FormValues) => {
@@ -53,7 +62,7 @@ export default function LeadForm({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="lead-stage">Stage</Label>
-          <LeadStageSelect value={form.watch("stage")} onChange={(stage) => form.setValue("stage", stage)} className="w-full" />
+          <LeadStageSelect value={form.watch("stage")} onChange={(stage) => form.setValue("stage", stage)} stages={stages} className="w-full" />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="lead-source">Source</Label>

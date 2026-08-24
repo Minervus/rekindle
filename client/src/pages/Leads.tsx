@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AppShell from "@/components/layout/AppShell";
 import LeadCard, { type LeadWithPerson } from "@/components/LeadCard";
@@ -9,18 +9,24 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { LEAD_STAGES, LEAD_STAGE_LABELS, LEAD_STAGE_HINTS } from "@shared/leadStages";
+import { useStageConfigs } from "@/hooks/useStageConfigs";
 import type { CreateLeadRequest } from "@shared/schema";
-
-const COLLAPSED_BY_DEFAULT = new Set(["client", "not_now"]);
 
 export default function Leads() {
   const [showForm, setShowForm] = useState(false);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set(COLLAPSED_BY_DEFAULT));
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: leads, isLoading } = useQuery<LeadWithPerson[]>({ queryKey: ["/api/leads"] });
+  const { stages, isLoading: stagesLoading } = useStageConfigs();
+  const { data: leads, isLoading: leadsLoading } = useQuery<LeadWithPerson[]>({ queryKey: ["/api/leads"] });
+  const isLoading = stagesLoading || leadsLoading;
+
+  // Terminal/inactive stages (e.g. Client, Not now) start collapsed —
+  // recomputed whenever the stage list changes, since keys are user-defined.
+  useEffect(() => {
+    setCollapsed(new Set(stages.filter((s) => !s.isActive).map((s) => s.key)));
+  }, [stages]);
 
   const createLead = useMutation({
     mutationFn: async (input: CreateLeadRequest) => {
@@ -56,7 +62,7 @@ export default function Leads() {
       {showForm && (
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <LeadForm onSubmit={(input) => createLead.mutate(input)} isSubmitting={createLead.isPending} />
+            <LeadForm stages={stages} onSubmit={(input) => createLead.mutate(input)} isSubmitting={createLead.isPending} />
           </CardContent>
         </Card>
       )}
@@ -77,28 +83,28 @@ export default function Leads() {
       )}
 
       <div className="space-y-6">
-        {LEAD_STAGES.map((stage) => {
-          const inStage = (leads ?? []).filter((l) => l.stage === stage);
+        {stages.map((stage) => {
+          const inStage = (leads ?? []).filter((l) => l.stage === stage.key);
           if (inStage.length === 0) return null;
-          const isCollapsed = collapsed.has(stage);
+          const isCollapsed = collapsed.has(stage.key);
 
           return (
-            <div key={stage}>
+            <div key={stage.key}>
               <button
                 type="button"
-                onClick={() => toggleCollapsed(stage)}
+                onClick={() => toggleCollapsed(stage.key)}
                 className="w-full flex items-baseline justify-between gap-2 mb-2 text-left hover-elevate rounded-md px-1 py-0.5 -mx-1"
               >
                 <div className="flex items-baseline gap-2">
-                  <h2 className="font-semibold">{LEAD_STAGE_LABELS[stage]}</h2>
+                  <h2 className="font-semibold">{stage.label}</h2>
                   <span className="text-sm text-muted-foreground">{inStage.length}</span>
                 </div>
-                <span className="text-xs text-muted-foreground hidden sm:inline">{LEAD_STAGE_HINTS[stage]}</span>
+                {stage.hint && <span className="text-xs text-muted-foreground hidden sm:inline">{stage.hint}</span>}
               </button>
               {!isCollapsed && (
                 <div className="space-y-2">
                   {inStage.map((lead) => (
-                    <LeadCard key={lead.id} lead={lead} />
+                    <LeadCard key={lead.id} lead={lead} stages={stages} />
                   ))}
                 </div>
               )}

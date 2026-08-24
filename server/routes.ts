@@ -10,6 +10,9 @@ import {
   createLeadRequestSchema,
   updateLeadSchema,
   updateSettingsSchema,
+  insertStageConfigSchema,
+  updateStageConfigSchema,
+  reorderStagesSchema,
 } from "@shared/schema";
 import { verifyPassphrase, issueToken, requireAuth } from "./auth";
 import * as storage from "./storage";
@@ -54,6 +57,7 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.use("/api/reminders", requireAuth);
   app.use("/api/leads", requireAuth);
   app.use("/api/settings", requireAuth);
+  app.use("/api/stages", requireAuth);
 
   app.get(
     "/api/people",
@@ -214,6 +218,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     asyncHandler(async (req, res) => {
       try {
         const input = createLeadRequestSchema.parse(req.body);
+
+        if (input.stage) {
+          const stages = await storage.listStageConfigs();
+          if (!stages.some((s) => s.key === input.stage)) {
+            return res.status(400).json({ error: "Unknown pipeline stage" });
+          }
+        }
+
         let personId: string;
 
         if ("person" in input) {
@@ -248,6 +260,14 @@ export async function registerRoutes(app: Express): Promise<void> {
     asyncHandler(async (req, res) => {
       try {
         const input = updateLeadSchema.parse(req.body);
+
+        if (input.stage) {
+          const stages = await storage.listStageConfigs();
+          if (!stages.some((s) => s.key === input.stage)) {
+            return res.status(400).json({ error: "Unknown pipeline stage" });
+          }
+        }
+
         const lead = await storage.updateLead(req.params.id, input);
         if (!lead) return res.status(404).json({ error: "Not found" });
         res.json(lead);
@@ -288,6 +308,77 @@ export async function registerRoutes(app: Express): Promise<void> {
         }
         throw err;
       }
+    }),
+  );
+
+  // PUT so it can't collide with PATCH /api/stages/:key matching "order"
+  // as a key value.
+  app.put(
+    "/api/stages/order",
+    asyncHandler(async (req, res) => {
+      try {
+        const orderedKeys = reorderStagesSchema.parse(req.body);
+        await storage.reorderStageConfigs(orderedKeys);
+        res.json(await storage.listStageConfigs());
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.get(
+    "/api/stages",
+    asyncHandler(async (_req, res) => {
+      res.json(await storage.listStageConfigs());
+    }),
+  );
+
+  app.post(
+    "/api/stages",
+    asyncHandler(async (req, res) => {
+      try {
+        const input = insertStageConfigSchema.parse(req.body);
+        res.status(201).json(await storage.createStageConfig(input));
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.patch(
+    "/api/stages/:key",
+    asyncHandler(async (req, res) => {
+      try {
+        const input = updateStageConfigSchema.parse(req.body);
+        const stage = await storage.updateStageConfig(req.params.key, input);
+        if (!stage) return res.status(404).json({ error: "Not found" });
+        res.json(stage);
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.delete(
+    "/api/stages/:key",
+    asyncHandler(async (req, res) => {
+      const result = await storage.deleteStageConfig(req.params.key);
+      if (result.blocked) {
+        return res.status(409).json({
+          error: `${result.leadNames.length} lead${result.leadNames.length === 1 ? "" : "s"} still in this stage — move them first`,
+          leadNames: result.leadNames,
+        });
+      }
+      res.status(204).end();
     }),
   );
 }

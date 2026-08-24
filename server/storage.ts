@@ -1,4 +1,4 @@
-import { eq, desc, max, count, gte, and } from "drizzle-orm";
+import { eq, desc, asc, max, count, gte, and } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   people,
@@ -6,6 +6,7 @@ import {
   reconnectSuggestions,
   leads,
   appSettings,
+  leadStageConfigs,
   type Person,
   type InsertPerson,
   type UpdatePerson,
@@ -17,9 +18,13 @@ import {
   type InsertLead,
   type UpdateLead,
   type AppSettings,
+  type StageConfig,
+  type InsertStageConfig,
+  type UpdateStageConfig,
 } from "@shared/schema";
 import { computeNextReconnectAt, computeDaysOverdue } from "@shared/relationshipTiers";
 import { computeWarmth, FREQUENCY_WINDOW_DAYS, type Warmth } from "@shared/warmth";
+import { DEFAULT_STAGE_SEEDS } from "@shared/leadStages";
 
 export type PersonWithWarmth = Person & { warmth: Warmth };
 
@@ -320,4 +325,79 @@ export async function updateSettings(input: { weeklyOutreachGoal: number }): Pro
     .where(eq(appSettings.id, SETTINGS_ID))
     .returning();
   return row;
+}
+
+// ─── Pipeline stage configs ─────────────────────────────────────────────
+
+export async function listStageConfigs(): Promise<StageConfig[]> {
+  const rows = await getDb().select().from(leadStageConfigs).orderBy(asc(leadStageConfigs.sortOrder));
+  if (rows.length > 0) return rows;
+
+  // Lazily seed on first read — a fresh DB, or one where every stage has
+  // been deleted. onConflictDoNothing guards a race with a concurrent
+  // request also seeding.
+  const seeded = await getDb()
+    .insert(leadStageConfigs)
+    .values(
+      DEFAULT_STAGE_SEEDS.map((s, i) => ({
+        key: s.key,
+        label: s.label,
+        hint: s.hint,
+        sortOrder: i,
+        touchIntervalDays: s.touchIntervalDays,
+        isActive: s.isActive,
+      })),
+    )
+    .onConflictDoNothing()
+    .returning();
+  if (seeded.length > 0) return seeded.sort((a, b) => a.sortOrder - b.sortOrder);
+
+  return getDb().select().from(leadStageConfigs).orderBy(asc(leadStageConfigs.sortOrder));
+}
+
+export async function createStageConfig(input: InsertStageConfig): Promise<StageConfig> {
+  const [{ maxOrder }] = await getDb().select({ maxOrder: max(leadStageConfigs.sortOrder) }).from(leadStageConfigs);
+  const [row] = await getDb()
+    .insert(leadStageConfigs)
+    .values({ ...input, sortOrder: (maxOrder ?? -1) + 1 })
+    .returning();
+  return row;
+}
+
+export async function updateStageConfig(key: string, input: UpdateStageConfig): Promise<StageConfig | undefined> {
+  const [row] = await getDb()
+    .update(leadStageConfigs)
+    .set({ ...input, updatedAt: new Date() })
+    .where(eq(leadStageConfigs.key, key))
+    .returning();
+  return row;
+}
+
+// Persists a new top-to-bottom order in one transaction.
+export async function reorderStageConfigs(orderedKeys: string[]): Promise<void> {
+  await getDb().transaction(async (tx) => {
+    for (let i = 0; i < orderedKeys.length; i++) {
+      await tx.update(leadStageConfigs).set({ sortOrder: i, updatedAt: new Date() }).where(eq(leadStageConfigs.key, orderedKeys[i]));
+    }
+  });
+}
+
+export type DeleteStageResult = { blocked: false } | { blocked: true; leadNames: string[] };
+
+// Refuses to delete a stage that any lead currently references — the
+// caller (routes.ts) surfaces the blocking leads so the user can move them
+// first, per the "prompt me to reassign" choice over silent auto-migration.
+export async function deleteStageConfig(key: string): Promise<DeleteStageResult> {
+  const blocking = await getDb()
+    .select({ personName: people.name })
+    .from(leads)
+    .innerJoin(people, eq(leads.personId, people.id))
+    .where(eq(leads.stage, key));
+
+  if (blocking.length > 0) {
+    return { blocked: true, leadNames: blocking.map((l) => l.personName) };
+  }
+
+  await getDb().delete(leadStageConfigs).where(eq(leadStageConfigs.key, key));
+  return { blocked: false };
 }

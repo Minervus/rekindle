@@ -8,18 +8,18 @@ import { Label } from "@/components/ui/label";
 import LeadStageSelect from "@/components/LeadStageSelect";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { computeLeadStaleness, type LeadStage } from "@shared/leadStages";
-import type { Lead } from "@shared/schema";
+import { computeLeadStaleness } from "@shared/leadStages";
+import type { Lead, StageConfig } from "@shared/schema";
 
 interface PromoteFormValues {
-  stage: LeadStage;
+  stage: string;
   source: string;
   fitnessGoal: string;
 }
 
-export default function PipelineCard({ personId, lead }: { personId: string; lead: Lead | null }) {
+export default function PipelineCard({ personId, lead, stages }: { personId: string; lead: Lead | null; stages: StageConfig[] }) {
   const [promoting, setPromoting] = useState(false);
-  const [form, setForm] = useState<PromoteFormValues>({ stage: "new", source: "", fitnessGoal: "" });
+  const [form, setForm] = useState<PromoteFormValues>({ stage: stages[0]?.key ?? "", source: "", fitnessGoal: "" });
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -45,7 +45,7 @@ export default function PipelineCard({ personId, lead }: { personId: string; lea
   });
 
   const changeStage = useMutation({
-    mutationFn: async (stage: LeadStage) => apiRequest("PATCH", `/api/leads/${lead!.id}`, { stage }),
+    mutationFn: async (stage: string) => apiRequest("PATCH", `/api/leads/${lead!.id}`, { stage }),
     onSuccess: () => {
       invalidate();
       toast({ title: "Stage updated" });
@@ -66,7 +66,13 @@ export default function PipelineCard({ personId, lead }: { personId: string; lea
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-lg">Pipeline</CardTitle>
           {!promoting && (
-            <Button size="sm" onClick={() => setPromoting(true)}>
+            <Button
+              size="sm"
+              onClick={() => {
+                setForm((f) => ({ ...f, stage: stages[0]?.key ?? f.stage }));
+                setPromoting(true);
+              }}
+            >
               Add to pipeline
             </Button>
           )}
@@ -76,7 +82,7 @@ export default function PipelineCard({ personId, lead }: { personId: string; lea
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Stage</Label>
-                <LeadStageSelect value={form.stage} onChange={(stage) => setForm((f) => ({ ...f, stage }))} className="w-full" />
+                <LeadStageSelect value={form.stage} onChange={(stage) => setForm((f) => ({ ...f, stage }))} stages={stages} className="w-full" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="promote-source">Source</Label>
@@ -111,10 +117,11 @@ export default function PipelineCard({ personId, lead }: { personId: string; lea
     );
   }
 
+  const currentStage = stages.find((s) => s.key === lead.stage);
   const staleness = computeLeadStaleness(
     lead.lastOutreachAt ? new Date(lead.lastOutreachAt) : null,
     new Date(lead.stageEnteredAt),
-    lead.stage,
+    currentStage?.touchIntervalDays ?? null,
   );
 
   return (
@@ -127,7 +134,7 @@ export default function PipelineCard({ personId, lead }: { personId: string; lea
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="flex items-center gap-3">
-          <LeadStageSelect value={lead.stage} onChange={(stage) => changeStage.mutate(stage)} className="w-[9.5rem]" />
+          <LeadStageSelect value={lead.stage} onChange={(stage) => changeStage.mutate(stage)} stages={stages} className="w-[9.5rem]" />
           <span className="text-muted-foreground">
             {staleness.daysSinceTouch === null ? "No outreach yet" : `${staleness.daysSinceTouch}d since last touch`}
             {staleness.isOverdue && <span className="text-primary font-medium"> · needs a follow-up</span>}

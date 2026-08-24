@@ -8,6 +8,7 @@ import Dashboard from "@/pages/Dashboard";
 import People from "@/pages/People";
 import PersonDetail from "@/pages/PersonDetail";
 import Leads from "@/pages/Leads";
+import Settings from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
 
 function Router() {
@@ -39,6 +40,13 @@ function Router() {
         {() => (
           <ProtectedRoute>
             <Leads />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/settings">
+        {() => (
+          <ProtectedRoute>
+            <Settings />
           </ProtectedRoute>
         )}
       </Route>

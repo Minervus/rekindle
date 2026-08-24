@@ -8,29 +8,31 @@ import LeadStageSelect from "@/components/LeadStageSelect";
 import InteractionForm from "@/components/InteractionForm";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { computeLeadStaleness, type LeadStage } from "@shared/leadStages";
-import type { Lead, Person, InsertInteraction } from "@shared/schema";
+import { computeLeadStaleness } from "@shared/leadStages";
+import type { Lead, Person, InsertInteraction, StageConfig } from "@shared/schema";
 import type { Warmth } from "@shared/warmth";
 
 export type LeadWithPerson = Lead & { person: Person & { warmth: Warmth } };
 
-export default function LeadCard({ lead }: { lead: LeadWithPerson }) {
+export default function LeadCard({ lead, stages }: { lead: LeadWithPerson; stages: StageConfig[] }) {
   const [loggingTouch, setLoggingTouch] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const currentStage = stages.find((s) => s.key === lead.stage);
   const staleness = computeLeadStaleness(
     lead.lastOutreachAt ? new Date(lead.lastOutreachAt) : null,
     new Date(lead.stageEnteredAt),
-    lead.stage,
+    currentStage?.touchIntervalDays ?? null,
   );
 
   const changeStage = useMutation({
-    mutationFn: async (stage: LeadStage) => apiRequest("PATCH", `/api/leads/${lead.id}`, { stage }),
+    mutationFn: async (stage: string) => apiRequest("PATCH", `/api/leads/${lead.id}`, { stage }),
     onSuccess: (_data, stage) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/people", lead.personId] });
-      toast(stage === "client" ? { title: `${lead.person.name} is now a client!` } : { title: "Stage updated" });
+      const label = stages.find((s) => s.key === stage)?.label ?? stage;
+      toast({ title: `Moved to ${label}` });
     },
   });
 
@@ -67,7 +69,12 @@ export default function LeadCard({ lead }: { lead: LeadWithPerson }) {
               </div>
             </div>
           </Link>
-          <LeadStageSelect value={lead.stage} onChange={(stage) => changeStage.mutate(stage)} className="w-[9.5rem] shrink-0" />
+          <LeadStageSelect
+            value={lead.stage}
+            onChange={(stage) => changeStage.mutate(stage)}
+            stages={stages}
+            className="w-[9.5rem] shrink-0"
+          />
         </div>
 
         {lead.nextAction && (

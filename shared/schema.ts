@@ -3,14 +3,12 @@ import { pgTable, text, varchar, timestamp, jsonb, pgEnum, boolean, integer } fr
 import { createSchemaFactory } from "drizzle-zod";
 import { z } from "zod";
 import { RELATIONSHIP_TIERS } from "./relationshipTiers";
-import { LEAD_STAGES } from "./leadStages";
 
 // JSON requests always send timestamps as ISO strings, never Date
 // instances — coerce so insert/update schemas accept wire data.
 const { createInsertSchema } = createSchemaFactory({ coerce: { date: true } });
 
 export const relationshipTierEnum = pgEnum("relationship_tier", RELATIONSHIP_TIERS);
-export const leadStageEnum = pgEnum("lead_stage", LEAD_STAGES);
 export const interactionKindEnum = pgEnum("interaction_kind", ["personal", "outreach"]);
 
 export const people = pgTable("people", {
@@ -109,13 +107,19 @@ export const reconnectSuggestions = pgTable("reconnect_suggestions", {
 
 export type ReconnectSuggestion = typeof reconnectSuggestions.$inferSelect;
 
+// Stage keys are user-editable (see leadStageConfigs below), so this is a
+// plain text column rather than a Postgres enum — enums can't have values
+// removed, and app-level validation against the current stage list gives
+// the same safety with none of that rigidity. Deleting a stage config is
+// blocked (FK-less, checked in storage.ts) while any lead still references
+// its key, so this column never points at a config that no longer exists.
 export const leads = pgTable("leads", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   personId: varchar("person_id")
     .notNull()
     .unique()
     .references(() => people.id, { onDelete: "cascade" }),
-  stage: leadStageEnum("stage").notNull().default("new"),
+  stage: text("stage").notNull().default("new"),
   // Reset whenever `stage` changes — drives per-stage staleness for leads
   // with no outreach yet, and shows how long someone's sat in a stage.
   stageEnteredAt: timestamp("stage_entered_at").defaultNow().notNull(),
@@ -153,6 +157,37 @@ export type InsertLead = z.infer<typeof insertLeadSchema>;
 export type UpdateLead = z.infer<typeof updateLeadSchema>;
 export type CreateLeadRequest = z.infer<typeof createLeadRequestSchema>;
 export type Lead = typeof leads.$inferSelect;
+
+// User-editable pipeline stages. `key` is the value stored in leads.stage.
+// Lazily seeded from shared/leadStages.ts's DEFAULT_STAGE_SEEDS the first
+// time this table is read empty — see storage.ts's listStageConfigs.
+export const leadStageConfigs = pgTable("lead_stage_configs", {
+  key: varchar("key").primaryKey().default(sql`gen_random_uuid()`),
+  label: text("label").notNull(),
+  hint: text("hint"),
+  sortOrder: integer("sort_order").notNull(),
+  // Days of silence before a lead in this stage is flagged as needing a
+  // touch. null = never flagged.
+  touchIntervalDays: integer("touch_interval_days"),
+  // Counts toward the weekly accountability "untouched leads" list and the
+  // Dashboard pipeline strip — off for terminal stages like Client.
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertStageConfigSchema = createInsertSchema(leadStageConfigs).pick({
+  label: true,
+  hint: true,
+  touchIntervalDays: true,
+  isActive: true,
+});
+export const updateStageConfigSchema = insertStageConfigSchema.partial();
+export const reorderStagesSchema = z.array(z.string()).min(1);
+
+export type InsertStageConfig = z.infer<typeof insertStageConfigSchema>;
+export type UpdateStageConfig = z.infer<typeof updateStageConfigSchema>;
+export type StageConfig = typeof leadStageConfigs.$inferSelect;
 
 export const appSettings = pgTable("app_settings", {
   id: varchar("id").primaryKey().default("singleton"),

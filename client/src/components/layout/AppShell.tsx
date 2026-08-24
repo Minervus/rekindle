@@ -30,6 +30,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {navLink("/", "Dashboard")}
             {navLink("/people", "People")}
             {navLink("/leads", "Leads")}
+            {navLink("/settings", "Settings")}
             <Button variant="ghost" size="sm" onClick={logout}>
               Log out
             </Button>

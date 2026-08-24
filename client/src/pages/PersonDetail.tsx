@@ -8,6 +8,7 @@ import SuggestionPanel from "@/components/SuggestionPanel";
 import PersonAvatar from "@/components/PersonAvatar";
 import WarmthMeter from "@/components/WarmthMeter";
 import PipelineCard from "@/components/PipelineCard";
+import { useStageConfigs } from "@/hooks/useStageConfigs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,6 +27,7 @@ export default function PersonDetail({ id }: { id: string }) {
   const { toast } = useToast();
 
   const { data: person, isLoading } = useQuery<PersonDetailData>({ queryKey: ["/api/people", id] });
+  const { stages } = useStageConfigs();
   const { data: interactions, isLoading: interactionsLoading } = useQuery<Interaction[]>({
     queryKey: ["/api/people", id, "interactions"],
   });
@@ -178,7 +180,7 @@ export default function PersonDetail({ id }: { id: string }) {
           </CardContent>
         </Card>
 
-        <PipelineCard personId={person.id} lead={person.lead} />
+        <PipelineCard personId={person.id} lead={person.lead} stages={stages} />
 
         <SuggestionPanel personId={person.id} />
 

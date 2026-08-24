@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { startOfWeek } from "date-fns";
 import { getToken } from "@/lib/auth";
 import { bucketByWeek, computeStreak, daysLeftInWeek, type TouchPoint } from "@shared/weeklyAccountability";
-import { ACTIVE_LEAD_STAGES } from "@shared/leadStages";
+import { useStageConfigs } from "@/hooks/useStageConfigs";
 import type { AppSettings } from "@shared/schema";
 import type { LeadWithPerson } from "@/components/LeadCard";
 
@@ -12,6 +12,7 @@ export const TOUCHES_QUERY_KEY = ["/api/leads", "touches"];
 export function useWeeklyAccountability() {
   const { data: settings } = useQuery<AppSettings>({ queryKey: ["/api/settings"] });
   const { data: leads } = useQuery<LeadWithPerson[]>({ queryKey: ["/api/leads"] });
+  const { activeKeys } = useStageConfigs();
   const { data: touches } = useQuery<TouchPoint[]>({
     queryKey: TOUCHES_QUERY_KEY,
     queryFn: async () => {
@@ -36,9 +37,7 @@ export function useWeeklyAccountability() {
 
   const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
   const touchedThisWeek = new Set(touches.filter((t) => new Date(t.occurredAt) >= currentWeekStart).map((t) => t.personId));
-  const untouched = leads.filter(
-    (l) => (ACTIVE_LEAD_STAGES as readonly string[]).includes(l.stage) && !touchedThisWeek.has(l.personId),
-  );
+  const untouched = leads.filter((l) => activeKeys.has(l.stage) && !touchedThisWeek.has(l.personId));
 
   return {
     isReady: true as const,
