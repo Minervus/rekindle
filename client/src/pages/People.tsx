@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AppShell from "@/components/layout/AppShell";
 import PersonForm from "@/components/PersonForm";
 import PersonAvatar from "@/components/PersonAvatar";
+import WarmthMeter from "@/components/WarmthMeter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { RELATIONSHIP_TIER_LABELS, computeNextReconnectAt, computeDaysOverdue } from "@shared/relationshipTiers";
 import type { InsertPerson, Person } from "@shared/schema";
+import type { Warmth } from "@shared/warmth";
 
 export default function People() {
   const [search, setSearch] = useState("");
@@ -20,7 +22,7 @@ export default function People() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: people, isLoading } = useQuery<Person[]>({ queryKey: ["/api/people"] });
+  const { data: people, isLoading } = useQuery<(Person & { warmth: Warmth })[]>({ queryKey: ["/api/people"] });
 
   const createPerson = useMutation({
     mutationFn: async (input: InsertPerson) => {
@@ -85,6 +87,7 @@ export default function People() {
                       <div className="text-sm text-muted-foreground">
                         {[person.role, person.company].filter(Boolean).join(" at ") || person.location || "—"}
                       </div>
+                      <WarmthMeter score={person.warmth.score} level={person.warmth.level} className="mt-1" />
                     </div>
                   </div>
                   <Badge variant="secondary">{RELATIONSHIP_TIER_LABELS[person.relationshipTier]}</Badge>

@@ -5,9 +5,10 @@ import ReconnectCard from "@/components/ReconnectCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { Person } from "@shared/schema";
+import type { Warmth } from "@shared/warmth";
 
 interface DueContact {
-  person: Person;
+  person: Person & { warmth: Warmth };
   nextReconnectAt: string;
   daysOverdue: number;
 }

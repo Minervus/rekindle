@@ -6,6 +6,7 @@ import PersonForm from "@/components/PersonForm";
 import InteractionForm from "@/components/InteractionForm";
 import SuggestionPanel from "@/components/SuggestionPanel";
 import PersonAvatar from "@/components/PersonAvatar";
+import WarmthMeter from "@/components/WarmthMeter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,6 +14,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import type { InsertInteraction, InsertPerson, Interaction, Person } from "@shared/schema";
+import type { Warmth } from "@shared/warmth";
 
 export default function PersonDetail({ id }: { id: string }) {
   const [, navigate] = useLocation();
@@ -20,7 +22,7 @@ export default function PersonDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: person, isLoading } = useQuery<Person>({ queryKey: ["/api/people", id] });
+  const { data: person, isLoading } = useQuery<Person & { warmth: Warmth }>({ queryKey: ["/api/people", id] });
   const { data: interactions, isLoading: interactionsLoading } = useQuery<Interaction[]>({
     queryKey: ["/api/people", id, "interactions"],
   });
@@ -80,7 +82,10 @@ export default function PersonDetail({ id }: { id: string }) {
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <div className="flex items-center gap-3">
               <PersonAvatar name={person.name} photoUrl={person.photoUrl} className="h-12 w-12" />
-              <CardTitle className="text-xl">{person.name}</CardTitle>
+              <div>
+                <CardTitle className="text-xl">{person.name}</CardTitle>
+                <WarmthMeter score={person.warmth.score} level={person.warmth.level} className="mt-1" />
+              </div>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setEditing((v) => !v)}>

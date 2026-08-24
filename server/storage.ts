@@ -1,4 +1,4 @@
-import { eq, desc, max } from "drizzle-orm";
+import { eq, desc, max, count, gte } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   people,
@@ -13,14 +13,43 @@ import {
   type ReconnectSuggestion,
 } from "@shared/schema";
 import { computeNextReconnectAt, computeDaysOverdue } from "@shared/relationshipTiers";
+import { computeWarmth, FREQUENCY_WINDOW_DAYS, type Warmth } from "@shared/warmth";
 
-export async function listPeople(): Promise<Person[]> {
-  return getDb().select().from(people).orderBy(desc(people.createdAt));
+export type PersonWithWarmth = Person & { warmth: Warmth };
+
+function daysSince(date: Date | null, now: Date): number | null {
+  if (!date) return null;
+  return Math.floor((now.getTime() - date.getTime()) / 86_400_000);
 }
 
-export async function getPerson(id: string): Promise<Person | undefined> {
+// One grouped query for however many people are being annotated — avoids an
+// interaction-count query per person.
+async function attachWarmth(rows: Person[]): Promise<PersonWithWarmth[]> {
+  const since = new Date(Date.now() - FREQUENCY_WINDOW_DAYS * 86_400_000);
+  const counts = await getDb()
+    .select({ personId: interactions.personId, count: count() })
+    .from(interactions)
+    .where(gte(interactions.occurredAt, since))
+    .groupBy(interactions.personId);
+  const countByPerson = new Map(counts.map((c) => [c.personId, Number(c.count)]));
+
+  const now = new Date();
+  return rows.map((person) => ({
+    ...person,
+    warmth: computeWarmth(daysSince(person.lastInteractionAt, now), countByPerson.get(person.id) ?? 0),
+  }));
+}
+
+export async function listPeople(): Promise<PersonWithWarmth[]> {
+  const rows = await getDb().select().from(people).orderBy(desc(people.createdAt));
+  return attachWarmth(rows);
+}
+
+export async function getPerson(id: string): Promise<PersonWithWarmth | undefined> {
   const [row] = await getDb().select().from(people).where(eq(people.id, id));
-  return row;
+  if (!row) return undefined;
+  const [withWarmth] = await attachWarmth([row]);
+  return withWarmth;
 }
 
 export async function createPerson(input: InsertPerson): Promise<Person> {
@@ -83,7 +112,7 @@ export async function deleteInteraction(id: string, personId: string): Promise<v
 }
 
 export interface DueContact {
-  person: Person;
+  person: PersonWithWarmth;
   nextReconnectAt: Date;
   daysOverdue: number;
 }
