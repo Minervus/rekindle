@@ -20,6 +20,10 @@ export const people = pgTable("people", {
   tags: jsonb("tags").notNull().default(sql`'[]'::jsonb`).$type<string[]>(),
   // Stored as "MM-DD" so a birth year isn't required.
   birthday: text("birthday"),
+  // Either an external image URL or a client-resized data: URI (uploads are
+  // downscaled in the browser before submit — see client/src/lib/image.ts —
+  // so this stays small even without a dedicated file-storage backend).
+  photoUrl: text("photo_url"),
   facebookUrl: text("facebook_url"),
   instagramUrl: text("instagram_url"),
   linkedinUrl: text("linkedin_url"),
@@ -39,6 +43,7 @@ export const insertPersonSchema = createInsertSchema(people).pick({
   location: true,
   tags: true,
   birthday: true,
+  photoUrl: true,
   facebookUrl: true,
   instagramUrl: true,
   linkedinUrl: true,

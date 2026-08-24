@@ -5,6 +5,7 @@ import AppShell from "@/components/layout/AppShell";
 import PersonForm from "@/components/PersonForm";
 import InteractionForm from "@/components/InteractionForm";
 import SuggestionPanel from "@/components/SuggestionPanel";
+import PersonAvatar from "@/components/PersonAvatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -77,7 +78,10 @@ export default function PersonDetail({ id }: { id: string }) {
       <div className="space-y-6">
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xl">{person.name}</CardTitle>
+            <div className="flex items-center gap-3">
+              <PersonAvatar name={person.name} photoUrl={person.photoUrl} className="h-12 w-12" />
+              <CardTitle className="text-xl">{person.name}</CardTitle>
+            </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setEditing((v) => !v)}>
                 {editing ? "Cancel" : "Edit"}

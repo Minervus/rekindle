@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AppShell from "@/components/layout/AppShell";
 import PersonForm from "@/components/PersonForm";
+import PersonAvatar from "@/components/PersonAvatar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,13 +75,16 @@ export default function People() {
             <Link key={person.id} href={`/people/${person.id}`}>
               <Card className="hover-elevate cursor-pointer">
                 <CardContent className="py-4 flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-medium flex items-center gap-2">
-                      {person.name}
-                      {overdue && <span className="h-2 w-2 rounded-full bg-primary" title="Due for reconnect" />}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {[person.role, person.company].filter(Boolean).join(" at ") || person.location || "—"}
+                  <div className="flex items-center gap-3">
+                    <PersonAvatar name={person.name} photoUrl={person.photoUrl} />
+                    <div>
+                      <div className="font-medium flex items-center gap-2">
+                        {person.name}
+                        {overdue && <span className="h-2 w-2 rounded-full bg-primary" title="Due for reconnect" />}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {[person.role, person.company].filter(Boolean).join(" at ") || person.location || "—"}
+                      </div>
                     </div>
                   </div>
                   <Badge variant="secondary">{RELATIONSHIP_TIER_LABELS[person.relationshipTier]}</Badge>

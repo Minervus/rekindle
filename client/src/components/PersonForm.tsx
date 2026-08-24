@@ -3,6 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import PersonAvatar from "@/components/PersonAvatar";
+import { fileToResizedDataUrl } from "@/lib/image";
+import { useToast } from "@/hooks/use-toast";
 import { RELATIONSHIP_TIERS, RELATIONSHIP_TIER_LABELS, type RelationshipTier } from "@shared/relationshipTiers";
 import type { InsertPerson, Person } from "@shared/schema";
 
@@ -14,6 +17,7 @@ interface FormValues {
   location: string;
   tagsInput: string;
   birthday: string;
+  photoUrl: string;
   facebookUrl: string;
   instagramUrl: string;
   linkedinUrl: string;
@@ -29,6 +33,7 @@ function toFormValues(person?: Person): FormValues {
     location: person?.location ?? "",
     tagsInput: person?.tags?.join(", ") ?? "",
     birthday: person?.birthday ?? "",
+    photoUrl: person?.photoUrl ?? "",
     facebookUrl: person?.facebookUrl ?? "",
     instagramUrl: person?.instagramUrl ?? "",
     linkedinUrl: person?.linkedinUrl ?? "",
@@ -48,6 +53,18 @@ export default function PersonForm({
   submitLabel?: string;
 }) {
   const form = useForm<FormValues>({ defaultValues: toFormValues(person) });
+  const { toast } = useToast();
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      form.setValue("photoUrl", await fileToResizedDataUrl(file));
+    } catch {
+      toast({ variant: "destructive", title: "Couldn't load that image" });
+    }
+  };
 
   const handleSubmit = (values: FormValues) => {
     onSubmit({
@@ -61,6 +78,7 @@ export default function PersonForm({
         .map((t) => t.trim())
         .filter(Boolean),
       birthday: values.birthday.trim() || null,
+      photoUrl: values.photoUrl || null,
       facebookUrl: values.facebookUrl.trim() || null,
       instagramUrl: values.instagramUrl.trim() || null,
       linkedinUrl: values.linkedinUrl.trim() || null,
@@ -70,6 +88,20 @@ export default function PersonForm({
 
   return (
     <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+      <div className="flex items-center gap-4">
+        <PersonAvatar name={form.watch("name") || "?"} photoUrl={form.watch("photoUrl")} className="h-16 w-16 text-lg" />
+        <div className="space-y-1.5">
+          <Label htmlFor="photo">Profile photo</Label>
+          <div className="flex items-center gap-2">
+            <Input id="photo" type="file" accept="image/*" onChange={handlePhotoChange} className="max-w-xs" />
+            {form.watch("photoUrl") && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => form.setValue("photoUrl", "")}>
+                Remove
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2 space-y-1.5">
           <Label htmlFor="name">Name</Label>
