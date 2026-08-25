@@ -7,6 +7,7 @@ import InteractionForm from "@/components/InteractionForm";
 import SuggestionPanel from "@/components/SuggestionPanel";
 import PersonAvatar from "@/components/PersonAvatar";
 import PersonNotes from "@/components/PersonNotes";
+import PersonMilestones from "@/components/PersonMilestones";
 import WarmthMeter from "@/components/WarmthMeter";
 import PipelineCard from "@/components/PipelineCard";
 import { useStageConfigs } from "@/hooks/useStageConfigs";
@@ -40,6 +41,9 @@ export default function PersonDetail({ id }: { id: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/people"] });
+      // Birthdays feed the dashboard's milestone list, so editing the
+      // profile can change what's shown there.
+      queryClient.invalidateQueries({ queryKey: ["/api/reminders/milestones"] });
       setEditing(false);
       toast({ title: "Profile updated" });
     },
@@ -187,6 +191,8 @@ export default function PersonDetail({ id }: { id: string }) {
         </Card>
 
         <PersonNotes personId={person.id} notes={person.notes} />
+
+        <PersonMilestones personId={person.id} birthday={person.birthday} />
 
         <PipelineCard personId={person.id} lead={person.lead} stages={stages} />
 

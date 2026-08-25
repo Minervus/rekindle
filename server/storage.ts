@@ -1,8 +1,9 @@
-import { eq, desc, asc, max, count, gte, and } from "drizzle-orm";
+import { eq, desc, asc, max, count, gte, and, isNotNull } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   people,
   interactions,
+  milestones,
   reconnectSuggestions,
   leads,
   appSettings,
@@ -13,6 +14,9 @@ import {
   type Interaction,
   type InsertInteraction,
   type UpdateInteraction,
+  type Milestone,
+  type InsertMilestone,
+  type UpdateMilestone,
   type ReconnectSuggestion,
   type Lead,
   type InsertLead,
@@ -21,9 +25,11 @@ import {
   type StageConfig,
   type InsertStageConfig,
   type UpdateStageConfig,
+  type UpdateSettings,
 } from "@shared/schema";
-import { computeNextReconnectAt, computeDaysOverdue } from "@shared/relationshipTiers";
+import { computeNextReconnectAt, computeDaysOverdue, reconnectIntervalsFrom } from "@shared/relationshipTiers";
 import { computeWarmth, FREQUENCY_WINDOW_DAYS, type Warmth } from "@shared/warmth";
+import { birthdayToOccursOn, type MilestoneRecord } from "@shared/milestones";
 import { DEFAULT_STAGE_SEEDS } from "@shared/leadStages";
 
 export type PersonWithWarmth = Person & { warmth: Warmth };
@@ -150,16 +156,122 @@ export interface DueContact {
 }
 
 export async function listDueForReconnect(): Promise<DueContact[]> {
-  const all = await listPeople();
+  const [all, settings] = await Promise.all([listPeople(), getSettings()]);
+  const intervals = reconnectIntervalsFrom(settings);
   const now = new Date();
 
   return all
     .map((person) => {
-      const nextReconnectAt = computeNextReconnectAt(person.lastInteractionAt, person.createdAt, person.relationshipTier);
+      const nextReconnectAt = computeNextReconnectAt(person.lastInteractionAt, person.createdAt, person.relationshipTier, intervals);
       return { person, nextReconnectAt, daysOverdue: computeDaysOverdue(nextReconnectAt, now) };
     })
     .filter((entry) => entry.daysOverdue >= 0)
     .sort((a, b) => b.daysOverdue - a.daysOverdue);
+}
+
+export interface TopContact {
+  person: PersonWithWarmth;
+  interactionCount: number;
+}
+
+// "Who am I actually in touch with" — ranked by interaction count over the
+// same trailing window warmth uses, so the card and the warmth meters on it
+// are telling the same story. Lead-only people are excluded for consistency
+// with listPeople and the reconnect reminders.
+export async function listTopContacts(
+  limit = 5,
+  windowDays: number = FREQUENCY_WINDOW_DAYS,
+): Promise<TopContact[]> {
+  const since = new Date(Date.now() - windowDays * 86_400_000);
+
+  const rows = await getDb()
+    .select({ person: people, interactionCount: count(interactions.id) })
+    .from(interactions)
+    .innerJoin(people, eq(interactions.personId, people.id))
+    .where(and(gte(interactions.occurredAt, since), eq(people.isPersonalContact, true)))
+    .groupBy(people.id)
+    // Recency breaks ties so the order is stable between requests rather
+    // than left to whatever the planner returns.
+    .orderBy(desc(count(interactions.id)), desc(people.lastInteractionAt))
+    .limit(limit);
+
+  const withWarmth = await attachWarmth(rows.map((r) => r.person));
+  const warmthById = new Map(withWarmth.map((p) => [p.id, p]));
+
+  return rows.map((r) => ({ person: warmthById.get(r.person.id)!, interactionCount: Number(r.interactionCount) }));
+}
+
+// ─── Milestones ─────────────────────────────────────────────────────────
+
+export async function listMilestones(personId: string): Promise<Milestone[]> {
+  return getDb().select().from(milestones).where(eq(milestones.personId, personId)).orderBy(asc(milestones.occursOn));
+}
+
+export async function createMilestone(input: InsertMilestone): Promise<Milestone> {
+  const [row] = await getDb().insert(milestones).values(input).returning();
+  return row;
+}
+
+// personId is part of the predicate, not just the route — a milestone id from
+// one person can never be used to edit another's.
+export async function updateMilestone(id: string, personId: string, input: UpdateMilestone): Promise<Milestone | undefined> {
+  const [row] = await getDb()
+    .update(milestones)
+    .set({ ...input, updatedAt: new Date() })
+    .where(and(eq(milestones.id, id), eq(milestones.personId, personId)))
+    .returning();
+  return row;
+}
+
+export async function deleteMilestone(id: string, personId: string): Promise<void> {
+  await getDb().delete(milestones).where(and(eq(milestones.id, id), eq(milestones.personId, personId)));
+}
+
+// Everything the dashboard needs to work out what's coming up. Returns all
+// milestones rather than pre-filtering to a lookahead window: whether a date
+// is "within 30 days" depends on the viewer's local today, so the cut is made
+// client-side (see shared/milestones.ts).
+export async function listMilestoneRecords(): Promise<MilestoneRecord[]> {
+  const rows = await getDb()
+    .select({
+      id: milestones.id,
+      personId: milestones.personId,
+      personName: people.name,
+      personPhotoUrl: people.photoUrl,
+      label: milestones.label,
+      occursOn: milestones.occursOn,
+      recursAnnually: milestones.recursAnnually,
+    })
+    .from(milestones)
+    .innerJoin(people, eq(milestones.personId, people.id))
+    .where(eq(people.isPersonalContact, true));
+
+  const records: MilestoneRecord[] = rows.map((r) => ({ ...r, kind: "milestone" as const }));
+
+  // Birthdays already live on the person as "MM-DD"; surfacing them here
+  // means the dashboard shows one merged "what's coming up" list instead of
+  // making birthdays a second thing to remember to check.
+  const birthdayRows = await getDb()
+    .select({ id: people.id, name: people.name, photoUrl: people.photoUrl, birthday: people.birthday })
+    .from(people)
+    .where(and(eq(people.isPersonalContact, true), isNotNull(people.birthday)));
+
+  for (const row of birthdayRows) {
+    const occursOn = birthdayToOccursOn(row.birthday);
+    if (!occursOn) continue; // free-text field — skip anything that isn't MM-DD
+    records.push({
+      id: `birthday:${row.id}`,
+      personId: row.id,
+      personName: row.name,
+      personPhotoUrl: row.photoUrl,
+      label: "Birthday",
+      occursOn,
+      recursAnnually: true,
+      kind: "birthday",
+    });
+  }
+
+  return records;
 }
 
 export async function createSuggestion(input: {
@@ -317,8 +429,10 @@ export async function getSettings(): Promise<AppSettings> {
   return row;
 }
 
-export async function updateSettings(input: { weeklyOutreachGoal: number }): Promise<AppSettings> {
-  await getSettings(); // ensure the singleton row exists before updating it
+export async function updateSettings(input: UpdateSettings): Promise<AppSettings> {
+  const current = await getSettings(); // ensure the singleton row exists before updating it
+  if (Object.keys(input).length === 0) return current;
+
   const [row] = await getDb()
     .update(appSettings)
     .set({ ...input, updatedAt: new Date() })

@@ -11,6 +11,12 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useStageConfigs } from "@/hooks/useStageConfigs";
 import { useTheme, type ThemeMode } from "@/hooks/useTheme";
+import {
+  RELATIONSHIP_TIERS,
+  RELATIONSHIP_TIER_LABELS,
+  RECONNECT_SETTING_KEYS,
+  type RelationshipTier,
+} from "@shared/relationshipTiers";
 import type { AppSettings, StageConfig } from "@shared/schema";
 
 // Theme lives in localStorage, not the settings table — it's per-device, so
@@ -264,6 +270,156 @@ function GoalSetting() {
   );
 }
 
+function MilestoneLookaheadSetting() {
+  const [editing, setEditing] = useState(false);
+  const [daysInput, setDaysInput] = useState("");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: settings } = useQuery<AppSettings>({ queryKey: ["/api/settings"] });
+
+  const updateLookahead = useMutation({
+    mutationFn: async (milestoneLookaheadDays: number) => apiRequest("PATCH", "/api/settings", { milestoneLookaheadDays }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      setEditing(false);
+      toast({ title: "Lookahead updated" });
+    },
+  });
+
+  if (!settings) return <Skeleton className="h-9 w-32" />;
+
+  if (editing) {
+    return (
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const n = parseInt(daysInput, 10);
+          if (n > 0) updateLookahead.mutate(n);
+        }}
+      >
+        <Input
+          type="number"
+          min={1}
+          max={365}
+          value={daysInput}
+          onChange={(e) => setDaysInput(e.target.value)}
+          className="w-20"
+          autoFocus
+        />
+        <Button type="submit" size="sm" disabled={updateLookahead.isPending}>
+          Save
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+      </form>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-2xl font-semibold">{settings.milestoneLookaheadDays}</span>
+      <span className="text-sm text-muted-foreground">days of warning before a milestone</span>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          setDaysInput(String(settings.milestoneLookaheadDays));
+          setEditing(true);
+        }}
+      >
+        Edit
+      </Button>
+    </div>
+  );
+}
+
+// One form for all three tiers rather than three independent edit toggles —
+// these get set relative to each other ("close should be twice as often as
+// friend"), so you want them on screen together.
+function ReconnectCadenceSetting() {
+  const [drafts, setDrafts] = useState<Record<RelationshipTier, string> | null>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: settings } = useQuery<AppSettings>({ queryKey: ["/api/settings"] });
+
+  const save = useMutation({
+    mutationFn: async (values: Record<RelationshipTier, number>) =>
+      apiRequest("PATCH", "/api/settings", {
+        reconnectDaysClose: values.close,
+        reconnectDaysFriend: values.friend,
+        reconnectDaysAcquaintance: values.acquaintance,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      // The dashboard list and the People overdue dots are both derived from
+      // these, so they're stale the moment this saves.
+      queryClient.invalidateQueries({ queryKey: ["/api/reminders/due"] });
+      setDrafts(null);
+      toast({ title: "Reconnect cadence updated" });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Couldn't save cadence", description: err.message.replace(/^\d+:\s*/, "") });
+    },
+  });
+
+  if (!settings) return <Skeleton className="h-24 w-full" />;
+
+  const saved: Record<RelationshipTier, string> = {
+    close: String(settings[RECONNECT_SETTING_KEYS.close]),
+    friend: String(settings[RECONNECT_SETTING_KEYS.friend]),
+    acquaintance: String(settings[RECONNECT_SETTING_KEYS.acquaintance]),
+  };
+  const current = drafts ?? saved;
+  const parsed = {
+    close: parseInt(current.close, 10),
+    friend: parseInt(current.friend, 10),
+    acquaintance: parseInt(current.acquaintance, 10),
+  };
+  const allValid = RELATIONSHIP_TIERS.every((t) => Number.isInteger(parsed[t]) && parsed[t] >= 1 && parsed[t] <= 1825);
+  const dirty = RELATIONSHIP_TIERS.some((t) => current[t] !== saved[t]);
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (dirty && allValid) save.mutate(parsed);
+      }}
+    >
+      {RELATIONSHIP_TIERS.map((tier) => (
+        <div key={tier} className="flex items-center gap-3">
+          <Label htmlFor={`reconnect-${tier}`} className="w-28 shrink-0">
+            {RELATIONSHIP_TIER_LABELS[tier]}
+          </Label>
+          <Input
+            id={`reconnect-${tier}`}
+            type="number"
+            min={1}
+            max={1825}
+            className="w-24"
+            value={current[tier]}
+            onChange={(e) => setDrafts({ ...current, [tier]: e.target.value })}
+          />
+          <span className="text-sm text-muted-foreground">days of silence</span>
+        </div>
+      ))}
+
+      {dirty && (
+        <div className="flex items-center gap-2 pt-1">
+          <Button type="submit" size="sm" disabled={save.isPending || !allValid}>
+            {save.isPending ? "Saving..." : "Save cadence"}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setDrafts(null)} disabled={save.isPending}>
+            Cancel
+          </Button>
+        </div>
+      )}
+    </form>
+  );
+}
+
 export default function Settings() {
   const [addingStage, setAddingStage] = useState(false);
   const { stages, isLoading } = useStageConfigs();
@@ -301,6 +457,31 @@ export default function Settings() {
         </CardHeader>
         <CardContent>
           <GoalSetting />
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-lg">Reconnect cadence</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ReconnectCadenceSetting />
+          <p className="text-xs text-muted-foreground">
+            How long someone in each tier can go without contact before they show under "Due for reconnect". The clock
+            runs from their last interaction — or from when you added them, if there isn't one yet.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-lg">Milestone reminders</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <MilestoneLookaheadSetting />
+          <p className="text-xs text-muted-foreground">
+            How far ahead move dates, anniversaries and birthdays appear under "Coming up" on the dashboard.
+          </p>
         </CardContent>
       </Card>
 

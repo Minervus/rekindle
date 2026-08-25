@@ -13,9 +13,14 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { RELATIONSHIP_TIER_LABELS, computeNextReconnectAt, computeDaysOverdue } from "@shared/relationshipTiers";
+import {
+  RELATIONSHIP_TIER_LABELS,
+  computeNextReconnectAt,
+  computeDaysOverdue,
+  reconnectIntervalsFrom,
+} from "@shared/relationshipTiers";
 import { matchSearchFields, personSearchFields, searchTerms, type SearchField } from "@shared/personSearch";
-import type { InsertPerson, Person } from "@shared/schema";
+import type { AppSettings, InsertPerson, Person } from "@shared/schema";
 import type { Warmth } from "@shared/warmth";
 
 // Fields already visible on the row — repeating them as a "why this
@@ -29,6 +34,10 @@ export default function People() {
   const { toast } = useToast();
 
   const { data: people, isLoading } = useQuery<(Person & { warmth: Warmth })[]>({ queryKey: ["/api/people"] });
+  // Falls back to the defaults until settings land, so the overdue dots show
+  // the stock cadence for a beat rather than nothing at all.
+  const { data: settings } = useQuery<AppSettings>({ queryKey: ["/api/settings"] });
+  const intervals = reconnectIntervalsFrom(settings);
 
   const createPerson = useMutation({
     mutationFn: async (input: InsertPerson) => {
@@ -101,6 +110,7 @@ export default function People() {
             person.lastInteractionAt ? new Date(person.lastInteractionAt) : null,
             new Date(person.createdAt),
             person.relationshipTier,
+            intervals,
           );
           const overdue = computeDaysOverdue(nextReconnectAt) >= 0;
 

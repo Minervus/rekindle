@@ -13,14 +13,21 @@ const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
   const [location] = useLocation();
   const logout = useLogout();
+
+  // Pages with a side rail need room for it. 5xl rather than something
+  // wider keeps the main column near its usual reading width once the rail
+  // is subtracted, so moving between a railed page and a plain one is a
+  // nudge rather than a jump. The header tracks the same width so the logo
+  // and nav stay flush with the content edges either way.
+  const container = aside ? "max-w-5xl" : "max-w-3xl";
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="max-w-3xl mx-auto flex items-center gap-2 px-4 py-3">
+        <div className={cn(container, "mx-auto flex items-center gap-2 px-4 py-3")}>
           <Link href="/" className="font-semibold shrink-0">
             Rekindle
           </Link>
@@ -57,7 +64,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="max-w-3xl mx-auto px-4 py-6">{children}</main>
+      <main className={cn(container, "mx-auto px-4 py-6")}>
+        {aside ? (
+          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6 lg:items-start">
+            <div className="min-w-0">{children}</div>
+            {/* Below lg the rail drops under the main column rather than
+                squeezing both — a 288px sidebar next to content doesn't fit
+                a phone. Sticky above it so the standings stay in view while
+                the reconnect list scrolls. */}
+            <aside className="mt-6 lg:mt-0 lg:sticky lg:top-6">{aside}</aside>
+          </div>
+        ) : (
+          children
+        )}
+      </main>
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, pgEnum, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, pgEnum, boolean, integer, date } from "drizzle-orm/pg-core";
 import { createSchemaFactory } from "drizzle-zod";
 import { z } from "zod";
-import { RELATIONSHIP_TIERS } from "./relationshipTiers";
+import { RELATIONSHIP_TIERS, DEFAULT_RECONNECT_INTERVAL_DAYS } from "./relationshipTiers";
 
 // JSON requests always send timestamps as ISO strings, never Date
 // instances — coerce so insert/update schemas accept wire data.
@@ -94,6 +94,39 @@ export const updateInteractionSchema = createInsertSchema(interactions).pick({ o
 export type InsertInteraction = z.infer<typeof insertInteractionSchema>;
 export type UpdateInteraction = z.infer<typeof updateInteractionSchema>;
 export type Interaction = typeof interactions.$inferSelect;
+
+// Dated life events worth reaching out around — a move date, a race, a work
+// anniversary. Kept as its own table rather than more columns on `people`
+// because someone can have several, and each needs its own recurrence rule.
+export const milestones = pgTable("milestones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  personId: varchar("person_id")
+    .notNull()
+    .references(() => people.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  // A calendar day, not an instant — "moving on the 14th" means the 14th
+  // wherever you are. Stored as YYYY-MM-DD and compared against the
+  // viewer's local today, so it never slides a day across timezones the
+  // way a timestamp would.
+  occursOn: date("occurs_on", { mode: "string" }).notNull(),
+  // One-off (a move) vs. yearly (an anniversary). One-off milestones drop
+  // off the dashboard once the date passes; recurring ones roll forward.
+  recursAnnually: boolean("recurs_annually").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMilestoneSchema = createInsertSchema(milestones)
+  .pick({ personId: true, label: true, occursOn: true, recursAnnually: true })
+  .extend({
+    label: z.string().trim().min(1, "Give the milestone a label"),
+    occursOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a YYYY-MM-DD date"),
+  });
+export const updateMilestoneSchema = insertMilestoneSchema.omit({ personId: true }).partial();
+
+export type InsertMilestone = z.infer<typeof insertMilestoneSchema>;
+export type UpdateMilestone = z.infer<typeof updateMilestoneSchema>;
+export type Milestone = typeof milestones.$inferSelect;
 
 const talkingPointSchema = z.object({
   point: z.string(),
@@ -198,12 +231,42 @@ export type StageConfig = typeof leadStageConfigs.$inferSelect;
 export const appSettings = pgTable("app_settings", {
   id: varchar("id").primaryKey().default("singleton"),
   weeklyOutreachGoal: integer("weekly_outreach_goal").notNull().default(10),
+  // How far ahead a milestone starts showing on the dashboard.
+  milestoneLookaheadDays: integer("milestone_lookahead_days").notNull().default(30),
+  // Days of silence before someone in each relationship tier is due for a
+  // reconnect. One column per tier rather than a jsonb map: the tiers are a
+  // fixed pgEnum, so adding one is already a schema change either way, and
+  // columns keep the values typed and cheap to validate.
+  reconnectDaysClose: integer("reconnect_days_close").notNull().default(DEFAULT_RECONNECT_INTERVAL_DAYS.close),
+  reconnectDaysFriend: integer("reconnect_days_friend").notNull().default(DEFAULT_RECONNECT_INTERVAL_DAYS.friend),
+  reconnectDaysAcquaintance: integer("reconnect_days_acquaintance")
+    .notNull()
+    .default(DEFAULT_RECONNECT_INTERVAL_DAYS.acquaintance),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const updateSettingsSchema = z.object({
-  weeklyOutreachGoal: z.coerce.number().int().min(1).max(200),
-});
+// Capped at five years — long enough for "barely keep in touch", short
+// enough that a stray keystroke can't push someone past a human lifetime.
+const reconnectDays = z.coerce.number().int().min(1).max(1825);
+
+// Every field optional so the Settings page can PATCH one control at a
+// time without echoing back values it isn't editing.
+export const updateSettingsSchema = z
+  .object({
+    weeklyOutreachGoal: z.coerce.number().int().min(1).max(200).optional(),
+    milestoneLookaheadDays: z.coerce.number().int().min(1).max(365).optional(),
+    reconnectDaysClose: reconnectDays.optional(),
+    reconnectDaysFriend: reconnectDays.optional(),
+    reconnectDaysAcquaintance: reconnectDays.optional(),
+  })
+  // Strict so an unknown field fails by name. Without it Zod strips it
+  // silently, the object comes out empty, and the refine below reports
+  // "Nothing to update" — which reads like a UI bug when the real cause is
+  // a client sending a field this server build doesn't have yet.
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update" });
+
+export type UpdateSettings = z.infer<typeof updateSettingsSchema>;
 export type AppSettings = typeof appSettings.$inferSelect;
 
 export const loginSchema = z.object({
