@@ -6,6 +6,8 @@ import {
   updatePersonSchema,
   insertInteractionSchema,
   updateInteractionSchema,
+  insertMilestoneSchema,
+  updateMilestoneSchema,
   loginSchema,
   createLeadRequestSchema,
   updateLeadSchema,
@@ -78,6 +80,16 @@ export async function registerRoutes(app: Express): Promise<void> {
         }
         throw err;
       }
+    }),
+  );
+
+  // Registered ahead of /api/people/:id — Express matches in registration
+  // order, so the literal path has to win before "top" is read as an id.
+  app.get(
+    "/api/people/top",
+    asyncHandler(async (req, res) => {
+      const limit = Math.min(20, Math.max(1, parseInt(String(req.query.limit ?? "5"), 10) || 5));
+      res.json(await storage.listTopContacts(limit));
     }),
   );
 
@@ -163,9 +175,66 @@ export async function registerRoutes(app: Express): Promise<void> {
   );
 
   app.get(
+    "/api/people/:id/milestones",
+    asyncHandler(async (req, res) => {
+      res.json(await storage.listMilestones(req.params.id));
+    }),
+  );
+
+  app.post(
+    "/api/people/:id/milestones",
+    asyncHandler(async (req, res) => {
+      try {
+        const input = insertMilestoneSchema.parse({ ...req.body, personId: req.params.id });
+        res.status(201).json(await storage.createMilestone(input));
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.patch(
+    "/api/people/:personId/milestones/:id",
+    asyncHandler(async (req, res) => {
+      try {
+        const input = updateMilestoneSchema.parse(req.body);
+        const milestone = await storage.updateMilestone(req.params.id, req.params.personId, input);
+        if (!milestone) return res.status(404).json({ error: "Not found" });
+        res.json(milestone);
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.delete(
+    "/api/people/:personId/milestones/:id",
+    asyncHandler(async (req, res) => {
+      await storage.deleteMilestone(req.params.id, req.params.personId);
+      res.status(204).end();
+    }),
+  );
+
+  app.get(
     "/api/reminders/due",
     asyncHandler(async (_req, res) => {
       res.json(await storage.listDueForReconnect());
+    }),
+  );
+
+  // Returns every milestone rather than only the ones inside the lookahead
+  // window — the "is it coming up" cut depends on the viewer's local today,
+  // so it's made client-side (shared/milestones.ts).
+  app.get(
+    "/api/reminders/milestones",
+    asyncHandler(async (_req, res) => {
+      res.json(await storage.listMilestoneRecords());
     }),
   );
 

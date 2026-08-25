@@ -3,6 +3,8 @@ import { Link } from "wouter";
 import AppShell from "@/components/layout/AppShell";
 import ReconnectCard from "@/components/ReconnectCard";
 import PipelineStrip from "@/components/PipelineStrip";
+import UpcomingMilestones from "@/components/UpcomingMilestones";
+import TopContactsCard from "@/components/TopContactsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { Person } from "@shared/schema";
@@ -18,7 +20,7 @@ export default function Dashboard() {
   const { data: due, isLoading } = useQuery<DueContact[]>({ queryKey: ["/api/reminders/due"] });
 
   return (
-    <AppShell>
+    <AppShell aside={<TopContactsCard />}>
       <PipelineStrip />
 
       <div className="flex items-center justify-between gap-4 mb-6">
@@ -41,6 +43,10 @@ export default function Dashboard() {
         {due?.map((entry) => (
           <ReconnectCard key={entry.person.id} person={entry.person} daysOverdue={entry.daysOverdue} />
         ))}
+      </div>
+
+      <div className="mt-6">
+        <UpcomingMilestones />
       </div>
     </AppShell>
   );
