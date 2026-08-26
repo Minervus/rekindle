@@ -6,6 +6,7 @@ import PersonAvatar from "@/components/PersonAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useStageConfigs } from "@/hooks/useStageConfigs";
+import { useLeadsEnabled } from "@/hooks/useLeadsEnabled";
 import { cn } from "@/lib/utils";
 import { matchSearchFields, personSearchFields, searchTerms, type SearchField } from "@shared/personSearch";
 import { RELATIONSHIP_TIER_LABELS } from "@shared/relationshipTiers";
@@ -69,11 +70,14 @@ export default function GlobalSearch() {
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const { byKey } = useStageConfigs();
+  const { enabled: leadsEnabled } = useLeadsEnabled();
   // Both lists are already cached by the People/Leads pages under the same
   // keys; fetching only once opened keeps the palette off the critical path
   // for pages that need neither.
   const { data: people } = useQuery<PersonRow[]>({ queryKey: ["/api/people"], enabled: open });
-  const { data: leads } = useQuery<LeadRow[]>({ queryKey: ["/api/leads"], enabled: open });
+  // Not fetched at all with the pipeline hidden, so results fall back to the
+  // relationship-tier badge and pipeline fields drop out of the search index.
+  const { data: leads } = useQuery<LeadRow[]>({ queryKey: ["/api/leads"], enabled: open && leadsEnabled });
 
   const close = useCallback(() => {
     setOpen(false);

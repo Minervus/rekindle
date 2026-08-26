@@ -1,9 +1,10 @@
-import { eq, desc, asc, max, count, gte, and, isNotNull } from "drizzle-orm";
+import { eq, desc, asc, max, count, gte, and, or, inArray, isNotNull } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   people,
   interactions,
   milestones,
+  personLinks,
   reconnectSuggestions,
   leads,
   appSettings,
@@ -17,6 +18,8 @@ import {
   type Milestone,
   type InsertMilestone,
   type UpdateMilestone,
+  type PersonLink,
+  type InsertPersonLink,
   type ReconnectSuggestion,
   type Lead,
   type InsertLead,
@@ -30,6 +33,7 @@ import {
 import { computeNextReconnectAt, computeDaysOverdue, reconnectIntervalsFrom } from "@shared/relationshipTiers";
 import { computeWarmth, FREQUENCY_WINDOW_DAYS, type Warmth } from "@shared/warmth";
 import { birthdayToOccursOn, type MilestoneRecord } from "@shared/milestones";
+import { linkTypeFor, type LinkType } from "@shared/personLinks";
 import { DEFAULT_STAGE_SEEDS } from "@shared/leadStages";
 
 export type PersonWithWarmth = Person & { warmth: Warmth };
@@ -292,6 +296,88 @@ export async function getLatestSuggestion(personId: string): Promise<ReconnectSu
     .orderBy(desc(reconnectSuggestions.createdAt))
     .limit(1);
   return row;
+}
+
+// ─── Person links ───────────────────────────────────────────────────────
+
+export interface LinkedPerson {
+  id: string; // the link row's id, not the person's
+  type: LinkType; // already flipped to read from this person's side
+  note: string | null;
+  person: Pick<Person, "id" | "name" | "photoUrl" | "relationshipTier">;
+}
+
+// Both directions in one pass: a link is stored once, so this person can be
+// either end of it. Whichever end they are, the other person is returned and
+// the type is oriented to read from this person's side.
+export async function listLinksForPerson(personId: string): Promise<LinkedPerson[]> {
+  const rows = await getDb()
+    .select()
+    .from(personLinks)
+    .where(or(eq(personLinks.personId, personId), eq(personLinks.relatedPersonId, personId)));
+
+  if (rows.length === 0) return [];
+
+  const otherIds = rows.map((r) => (r.personId === personId ? r.relatedPersonId : r.personId));
+  const others = await getDb()
+    .select({ id: people.id, name: people.name, photoUrl: people.photoUrl, relationshipTier: people.relationshipTier })
+    .from(people)
+    .where(inArray(people.id, otherIds));
+  const byId = new Map(others.map((p) => [p.id, p]));
+
+  return rows
+    .map((row) => {
+      const other = byId.get(row.personId === personId ? row.relatedPersonId : row.personId);
+      // The FK cascades, so a missing row here shouldn't happen — but a
+      // dangling link is not worth a 500.
+      if (!other) return null;
+      return { id: row.id, type: linkTypeFor(personId, row), note: row.note, person: other };
+    })
+    .filter((l): l is LinkedPerson => l !== null)
+    .sort((a, b) => a.person.name.localeCompare(b.person.name));
+}
+
+export type CreateLinkResult =
+  | { ok: true; link: PersonLink }
+  | { ok: false; reason: "self" | "duplicate" | "missing" };
+
+export async function createPersonLink(input: InsertPersonLink): Promise<CreateLinkResult> {
+  if (input.personId === input.relatedPersonId) return { ok: false, reason: "self" };
+
+  const both = await getDb()
+    .select({ id: people.id })
+    .from(people)
+    .where(inArray(people.id, [input.personId, input.relatedPersonId]));
+  if (both.length < 2) return { ok: false, reason: "missing" };
+
+  // The unique index only covers (personId, relatedPersonId); a link stored
+  // the other way round is the same relationship, so it's checked here.
+  const [existing] = await getDb()
+    .select({ id: personLinks.id })
+    .from(personLinks)
+    .where(
+      or(
+        and(eq(personLinks.personId, input.personId), eq(personLinks.relatedPersonId, input.relatedPersonId)),
+        and(eq(personLinks.personId, input.relatedPersonId), eq(personLinks.relatedPersonId, input.personId)),
+      ),
+    );
+  if (existing) return { ok: false, reason: "duplicate" };
+
+  const [link] = await getDb().insert(personLinks).values(input).returning();
+  return { ok: true, link };
+}
+
+// personId scopes the delete so a link id from one profile can't be used to
+// unlink a pair the caller isn't part of.
+export async function deletePersonLink(id: string, personId: string): Promise<void> {
+  await getDb()
+    .delete(personLinks)
+    .where(
+      and(
+        eq(personLinks.id, id),
+        or(eq(personLinks.personId, personId), eq(personLinks.relatedPersonId, personId)),
+      ),
+    );
 }
 
 // ─── Lead pipeline ──────────────────────────────────────────────────────

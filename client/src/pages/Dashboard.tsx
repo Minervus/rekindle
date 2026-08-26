@@ -5,6 +5,7 @@ import ReconnectCard from "@/components/ReconnectCard";
 import PipelineStrip from "@/components/PipelineStrip";
 import UpcomingMilestones from "@/components/UpcomingMilestones";
 import TopContactsCard from "@/components/TopContactsCard";
+import { useLeadsEnabled } from "@/hooks/useLeadsEnabled";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { Person } from "@shared/schema";
@@ -18,10 +19,11 @@ interface DueContact {
 
 export default function Dashboard() {
   const { data: due, isLoading } = useQuery<DueContact[]>({ queryKey: ["/api/reminders/due"] });
+  const { enabled: leadsEnabled } = useLeadsEnabled();
 
   return (
     <AppShell aside={<TopContactsCard />}>
-      <PipelineStrip />
+      {leadsEnabled && <PipelineStrip />}
 
       <div className="flex items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-semibold">Due for reconnect</h1>

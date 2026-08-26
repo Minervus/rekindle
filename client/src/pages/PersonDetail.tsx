@@ -8,9 +8,11 @@ import SuggestionPanel from "@/components/SuggestionPanel";
 import PersonAvatar from "@/components/PersonAvatar";
 import PersonNotes from "@/components/PersonNotes";
 import PersonMilestones from "@/components/PersonMilestones";
+import PersonConnections from "@/components/PersonConnections";
 import WarmthMeter from "@/components/WarmthMeter";
 import PipelineCard from "@/components/PipelineCard";
 import { useStageConfigs } from "@/hooks/useStageConfigs";
+import { useLeadsEnabled } from "@/hooks/useLeadsEnabled";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +32,7 @@ export default function PersonDetail({ id }: { id: string }) {
 
   const { data: person, isLoading } = useQuery<PersonDetailData>({ queryKey: ["/api/people", id] });
   const { stages } = useStageConfigs();
+  const { enabled: leadsEnabled } = useLeadsEnabled();
   const { data: interactions, isLoading: interactionsLoading } = useQuery<Interaction[]>({
     queryKey: ["/api/people", id, "interactions"],
   });
@@ -194,7 +197,9 @@ export default function PersonDetail({ id }: { id: string }) {
 
         <PersonMilestones personId={person.id} birthday={person.birthday} />
 
-        <PipelineCard personId={person.id} lead={person.lead} stages={stages} />
+        <PersonConnections personId={person.id} />
+
+        {leadsEnabled && <PipelineCard personId={person.id} lead={person.lead} stages={stages} />}
 
         <SuggestionPanel personId={person.id} />
 
@@ -204,8 +209,8 @@ export default function PersonDetail({ id }: { id: string }) {
           </CardHeader>
           <CardContent className="space-y-6">
             <InteractionForm
-              defaultKind={person.lead ? "outreach" : "personal"}
-              showKindToggle={!!person.lead}
+              defaultKind={leadsEnabled && person.lead ? "outreach" : "personal"}
+              showKindToggle={leadsEnabled && !!person.lead}
               onSubmit={(input) => addInteraction.mutate(input)}
               isSubmitting={addInteraction.isPending}
             />

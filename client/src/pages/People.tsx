@@ -1,26 +1,25 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { Search } from "lucide-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import AppShell from "@/components/layout/AppShell";
-import PersonForm from "@/components/PersonForm";
 import PersonAvatar from "@/components/PersonAvatar";
 import WarmthMeter from "@/components/WarmthMeter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import {
+  RELATIONSHIP_TIERS,
   RELATIONSHIP_TIER_LABELS,
   computeNextReconnectAt,
   computeDaysOverdue,
   reconnectIntervalsFrom,
+  type RelationshipTier,
 } from "@shared/relationshipTiers";
 import { matchSearchFields, personSearchFields, searchTerms, type SearchField } from "@shared/personSearch";
-import type { AppSettings, InsertPerson, Person } from "@shared/schema";
+import type { AppSettings, Person } from "@shared/schema";
 import type { Warmth } from "@shared/warmth";
 
 // Fields already visible on the row — repeating them as a "why this
@@ -29,27 +28,15 @@ const IMPLICIT_FIELDS = new Set(["Name", "Role", "Company", "Location", "Tier"])
 
 export default function People() {
   const [search, setSearch] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
+  // null = every tier. Narrowing by tier is the one filter that maps onto how
+  // often you're meant to reach out, so it earns a permanent control here.
+  const [tier, setTier] = useState<RelationshipTier | null>(null);
 
   const { data: people, isLoading } = useQuery<(Person & { warmth: Warmth })[]>({ queryKey: ["/api/people"] });
   // Falls back to the defaults until settings land, so the overdue dots show
   // the stock cadence for a beat rather than nothing at all.
   const { data: settings } = useQuery<AppSettings>({ queryKey: ["/api/settings"] });
   const intervals = reconnectIntervalsFrom(settings);
-
-  const createPerson = useMutation({
-    mutationFn: async (input: InsertPerson) => {
-      const res = await apiRequest("POST", "/api/people", input);
-      return res.json() as Promise<Person>;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/people"] });
-      setShowForm(false);
-      toast({ title: "Person added" });
-    },
-  });
 
   // Matches any field on the profile, not just the name — see
   // shared/personSearch.ts, which the header's global search also uses.
@@ -58,30 +45,32 @@ export default function People() {
     const out: { person: Person & { warmth: Warmth }; reasons: SearchField[] }[] = [];
 
     for (const person of people ?? []) {
+      if (tier && person.relationshipTier !== tier) continue;
       const matches = matchSearchFields(personSearchFields(person), terms);
       if (!matches) continue;
       out.push({ person, reasons: matches.filter((m) => !IMPLICIT_FIELDS.has(m.label)) });
     }
 
     return out;
-  }, [people, search]);
+  }, [people, search, tier]);
+
+  // Counted before the tier filter, so the chips show how many you'd get by
+  // switching rather than collapsing to zero on every other tier.
+  const tierCounts = useMemo(() => {
+    const counts = new Map<RelationshipTier, number>();
+    for (const person of people ?? []) {
+      counts.set(person.relationshipTier, (counts.get(person.relationshipTier) ?? 0) + 1);
+    }
+    return counts;
+  }, [people]);
 
   return (
     <AppShell>
       <div className="flex items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-semibold">People</h1>
-        <Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add person"}</Button>
       </div>
 
-      {showForm && (
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <PersonForm onSubmit={(input) => createPerson.mutate(input)} isSubmitting={createPerson.isPending} submitLabel="Add person" />
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="relative mb-4 max-w-sm">
+      <div className="relative mb-3 max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
           placeholder="Search name, tag, company, location…"
@@ -89,6 +78,37 @@ export default function People() {
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
         />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 mb-4">
+        <button
+          type="button"
+          onClick={() => setTier(null)}
+          aria-pressed={tier === null}
+          className={cn(
+            "text-sm rounded-full border px-3 py-1",
+            tier === null ? "bg-accent text-accent-foreground border-transparent" : "text-muted-foreground hover-elevate",
+          )}
+        >
+          All
+          <span className="text-xs text-muted-foreground ml-1.5 tabular-nums">{people?.length ?? 0}</span>
+        </button>
+
+        {RELATIONSHIP_TIERS.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTier((current) => (current === t ? null : t))}
+            aria-pressed={tier === t}
+            className={cn(
+              "text-sm rounded-full border px-3 py-1",
+              tier === t ? "bg-accent text-accent-foreground border-transparent" : "text-muted-foreground hover-elevate",
+            )}
+          >
+            {RELATIONSHIP_TIER_LABELS[t]}
+            <span className="text-xs text-muted-foreground ml-1.5 tabular-nums">{tierCounts.get(t) ?? 0}</span>
+          </button>
+        ))}
       </div>
 
       {isLoading && (
@@ -100,7 +120,11 @@ export default function People() {
 
       {!isLoading && filtered.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          {search.trim() ? `No one matches “${search.trim()}”.` : "No one here yet."}
+          {search.trim()
+            ? `No one matches “${search.trim()}”${tier ? ` in ${RELATIONSHIP_TIER_LABELS[tier]}` : ""}.`
+            : tier
+              ? `No one in ${RELATIONSHIP_TIER_LABELS[tier]} yet.`
+              : "No one here yet."}
         </p>
       )}
 
