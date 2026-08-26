@@ -8,6 +8,7 @@ import WarmthMeter from "@/components/WarmthMeter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
@@ -26,11 +27,28 @@ import type { Warmth } from "@shared/warmth";
 // matched" line would just be noise.
 const IMPLICIT_FIELDS = new Set(["Name", "Role", "Company", "Location", "Tier"]);
 
+// Sentinels for the location dropdown. Prefixed with a NUL so they can't
+// collide with a real place name, and non-empty because Radix's Select
+// rejects "" as an item value.
+const ANY_LOCATION = "\u0000any";
+const NO_LOCATION = "\u0000none";
+
+// Location is free text, so "Sydney" and "sydney" are the same place typed
+// twice. Group case-insensitively and display whichever spelling turns up
+// first rather than inventing a canonical one.
+function locationKey(location: string | null): string {
+  const trimmed = location?.trim();
+  return trimmed ? trimmed.toLowerCase() : NO_LOCATION;
+}
+
 export default function People() {
   const [search, setSearch] = useState("");
   // null = every tier. Narrowing by tier is the one filter that maps onto how
   // often you're meant to reach out, so it earns a permanent control here.
   const [tier, setTier] = useState<RelationshipTier | null>(null);
+  // A location key (lowercased), NO_LOCATION for people with none, or
+  // ANY_LOCATION for no filter.
+  const [location, setLocation] = useState<string>(ANY_LOCATION);
 
   const { data: people, isLoading } = useQuery<(Person & { warmth: Warmth })[]>({ queryKey: ["/api/people"] });
   // Falls back to the defaults until settings land, so the overdue dots show
@@ -40,29 +58,75 @@ export default function People() {
 
   // Matches any field on the profile, not just the name — see
   // shared/personSearch.ts, which the header's global search also uses.
-  const filtered = useMemo(() => {
+  const searchMatched = useMemo(() => {
     const terms = searchTerms(search);
     const out: { person: Person & { warmth: Warmth }; reasons: SearchField[] }[] = [];
 
     for (const person of people ?? []) {
-      if (tier && person.relationshipTier !== tier) continue;
       const matches = matchSearchFields(personSearchFields(person), terms);
       if (!matches) continue;
       out.push({ person, reasons: matches.filter((m) => !IMPLICIT_FIELDS.has(m.label)) });
     }
 
     return out;
-  }, [people, search, tier]);
+  }, [people, search]);
 
-  // Counted before the tier filter, so the chips show how many you'd get by
-  // switching rather than collapsing to zero on every other tier.
+  const matchesTier = (person: Person) => !tier || person.relationshipTier === tier;
+  const matchesLocation = (person: Person) => location === ANY_LOCATION || locationKey(person.location) === location;
+
+  const filtered = useMemo(
+    () => searchMatched.filter(({ person }) => matchesTier(person) && matchesLocation(person)),
+    [searchMatched, tier, location],
+  );
+
+  // Faceted counts: each control is counted against everything *except*
+  // itself, so the numbers show what you'd get by switching to that option
+  // rather than every other one collapsing to zero the moment you pick one.
   const tierCounts = useMemo(() => {
     const counts = new Map<RelationshipTier, number>();
-    for (const person of people ?? []) {
+    for (const { person } of searchMatched) {
+      if (!matchesLocation(person)) continue;
       counts.set(person.relationshipTier, (counts.get(person.relationshipTier) ?? 0) + 1);
     }
     return counts;
+  }, [searchMatched, location]);
+
+  // Built from everyone, not the filtered set, so a key always has a display
+  // spelling even when nothing currently matches it.
+  const locationLabels = useMemo(() => {
+    const labels = new Map<string, string>([[NO_LOCATION, "No location set"]]);
+    for (const person of people ?? []) {
+      const key = locationKey(person.location);
+      if (key !== NO_LOCATION && !labels.has(key)) labels.set(key, person.location!.trim());
+    }
+    return labels;
   }, [people]);
+
+  const locationOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const { person } of searchMatched) {
+      if (!matchesTier(person)) continue;
+      const key = locationKey(person.location);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    // The selected place stays listed at zero rather than disappearing —
+    // dropping it would leave the trigger rendering a value with no matching
+    // item, i.e. blank.
+    if (location !== ANY_LOCATION && !counts.has(location)) counts.set(location, 0);
+
+    const options = Array.from(counts, ([key, count]) => ({ key, label: locationLabels.get(key) ?? key, count }));
+
+    // Unset last, real places alphabetically — a long list is scanned by
+    // name, not by popularity.
+    const none = options.find((o) => o.key === NO_LOCATION);
+    const places = options.filter((o) => o.key !== NO_LOCATION).sort((a, b) => a.label.localeCompare(b.label));
+    return none ? [...places, none] : places;
+  }, [searchMatched, tier, location, locationLabels]);
+
+  const tierTotal = useMemo(() => searchMatched.filter(({ person }) => matchesLocation(person)).length, [searchMatched, location]);
+  const filtersActive = tier !== null || location !== ANY_LOCATION;
 
   return (
     <AppShell>
@@ -91,7 +155,7 @@ export default function People() {
           )}
         >
           All
-          <span className="text-xs text-muted-foreground ml-1.5 tabular-nums">{people?.length ?? 0}</span>
+          <span className="text-xs text-muted-foreground ml-1.5 tabular-nums">{tierTotal}</span>
         </button>
 
         {RELATIONSHIP_TIERS.map((t) => (
@@ -109,6 +173,35 @@ export default function People() {
             <span className="text-xs text-muted-foreground ml-1.5 tabular-nums">{tierCounts.get(t) ?? 0}</span>
           </button>
         ))}
+
+        {/* A dropdown rather than chips: tiers are three fixed values,
+            locations are however many places your contacts live. */}
+        <Select value={location} onValueChange={setLocation}>
+          <SelectTrigger className="h-8 w-auto min-w-[11rem] rounded-full text-sm" aria-label="Filter by location">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY_LOCATION}>All locations</SelectItem>
+            {locationOptions.map((option) => (
+              <SelectItem key={option.key} value={option.key}>
+                {option.label} ({option.count})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {filtersActive && (
+          <button
+            type="button"
+            onClick={() => {
+              setTier(null);
+              setLocation(ANY_LOCATION);
+            }}
+            className="text-sm text-muted-foreground rounded-full px-3 py-1 hover-elevate"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {isLoading && (
@@ -121,9 +214,9 @@ export default function People() {
       {!isLoading && filtered.length === 0 && (
         <p className="text-muted-foreground text-sm">
           {search.trim()
-            ? `No one matches “${search.trim()}”${tier ? ` in ${RELATIONSHIP_TIER_LABELS[tier]}` : ""}.`
-            : tier
-              ? `No one in ${RELATIONSHIP_TIER_LABELS[tier]} yet.`
+            ? `No one matches “${search.trim()}”${filtersActive ? " with those filters" : ""}.`
+            : filtersActive
+              ? "No one matches those filters."
               : "No one here yet."}
         </p>
       )}
