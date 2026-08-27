@@ -3,19 +3,25 @@ import { Flame, LayoutDashboard, LogOut, Settings, Users, type LucideIcon } from
 import { Button } from "@/components/ui/button";
 import GlobalSearch from "@/components/GlobalSearch";
 import ThemeToggle from "@/components/ThemeToggle";
+import QuickAdd from "@/components/QuickAdd";
 import { useLogout } from "@/hooks/useAuth";
+import { useLeadsEnabled } from "@/hooks/useLeadsEnabled";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+// `leadsOnly` items disappear entirely when the pipeline is switched off in
+// Settings — see useLeadsEnabled.
+const NAV_ITEMS: { href: string; label: string; icon: LucideIcon; leadsOnly?: boolean }[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/people", label: "People", icon: Users },
-  { href: "/leads", label: "Leads", icon: Flame },
+  { href: "/leads", label: "Leads", icon: Flame, leadsOnly: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function AppShell({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
   const [location] = useLocation();
   const logout = useLogout();
+  const { enabled: leadsEnabled } = useLeadsEnabled();
+  const navItems = NAV_ITEMS.filter((item) => !item.leadsOnly || leadsEnabled);
 
   // Pages with a side rail need room for it. 5xl rather than something
   // wider keeps the main column near its usual reading width once the rail
@@ -38,7 +44,7 @@ export default function AppShell({ children, aside }: { children: React.ReactNod
             {/* Labels collapse below `sm` so four items plus search still fit
                 on a phone — the icon carries the meaning there. */}
             <nav className="flex items-center gap-0.5">
-              {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
+              {navItems.map(({ href, label, icon: Icon }) => (
                 <Link
                   key={href}
                   href={href}
@@ -78,6 +84,8 @@ export default function AppShell({ children, aside }: { children: React.ReactNod
           children
         )}
       </main>
+
+      <QuickAdd />
     </div>
   );
 }

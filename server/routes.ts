@@ -8,6 +8,7 @@ import {
   updateInteractionSchema,
   insertMilestoneSchema,
   updateMilestoneSchema,
+  insertPersonLinkSchema,
   loginSchema,
   createLeadRequestSchema,
   updateLeadSchema,
@@ -217,6 +218,47 @@ export async function registerRoutes(app: Express): Promise<void> {
     "/api/people/:personId/milestones/:id",
     asyncHandler(async (req, res) => {
       await storage.deleteMilestone(req.params.id, req.params.personId);
+      res.status(204).end();
+    }),
+  );
+
+  app.get(
+    "/api/people/:id/links",
+    asyncHandler(async (req, res) => {
+      res.json(await storage.listLinksForPerson(req.params.id));
+    }),
+  );
+
+  app.post(
+    "/api/people/:id/links",
+    asyncHandler(async (req, res) => {
+      try {
+        const input = insertPersonLinkSchema.parse({ ...req.body, personId: req.params.id });
+        const result = await storage.createPersonLink(input);
+
+        if (!result.ok) {
+          const message = {
+            self: "Someone can't be linked to themselves",
+            duplicate: "These two are already linked",
+            missing: "One of those people no longer exists",
+          }[result.reason];
+          return res.status(result.reason === "missing" ? 404 : 409).json({ error: message });
+        }
+
+        res.status(201).json(result.link);
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return res.status(400).json({ error: fromZodError(err).message });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  app.delete(
+    "/api/people/:personId/links/:id",
+    asyncHandler(async (req, res) => {
+      await storage.deletePersonLink(req.params.id, req.params.personId);
       res.status(204).end();
     }),
   );

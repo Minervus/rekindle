@@ -1,8 +1,9 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, pgEnum, boolean, integer, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, pgEnum, boolean, integer, date, unique } from "drizzle-orm/pg-core";
 import { createSchemaFactory } from "drizzle-zod";
 import { z } from "zod";
 import { RELATIONSHIP_TIERS, DEFAULT_RECONNECT_INTERVAL_DAYS } from "./relationshipTiers";
+import { LINK_TYPES } from "./personLinks";
 
 // JSON requests always send timestamps as ISO strings, never Date
 // instances — coerce so insert/update schemas accept wire data.
@@ -10,6 +11,7 @@ const { createInsertSchema } = createSchemaFactory({ coerce: { date: true } });
 
 export const relationshipTierEnum = pgEnum("relationship_tier", RELATIONSHIP_TIERS);
 export const interactionKindEnum = pgEnum("interaction_kind", ["personal", "outreach"]);
+export const linkTypeEnum = pgEnum("link_type", LINK_TYPES);
 
 export const people = pgTable("people", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -128,6 +130,39 @@ export type InsertMilestone = z.infer<typeof insertMilestoneSchema>;
 export type UpdateMilestone = z.infer<typeof updateMilestoneSchema>;
 export type Milestone = typeof milestones.$inferSelect;
 
+// Links between two people — spouses, siblings, who referred whom. One row
+// per relationship, not two: `type` is recorded from `personId`'s side and
+// flipped via LINK_TYPE_INVERSE when rendering the other profile, so the
+// two ends can't disagree.
+export const personLinks = pgTable(
+  "person_links",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    personId: varchar("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    relatedPersonId: varchar("related_person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    type: linkTypeEnum("type").notNull().default("other"),
+    // Free-text qualifier for the vaguer types — "met through climbing club"
+    // next to a plain "Connected to".
+    note: text("note"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  // Stops the same pair being linked twice in the same direction. The
+  // reverse direction is caught in storage.ts, which can't be expressed as
+  // a column constraint.
+  (table) => ({ uniquePair: unique("person_links_pair").on(table.personId, table.relatedPersonId) }),
+);
+
+export const insertPersonLinkSchema = createInsertSchema(personLinks)
+  .pick({ personId: true, relatedPersonId: true, type: true, note: true })
+  .extend({ note: z.string().trim().max(200).nullish() });
+
+export type InsertPersonLink = z.infer<typeof insertPersonLinkSchema>;
+export type PersonLink = typeof personLinks.$inferSelect;
+
 const talkingPointSchema = z.object({
   point: z.string(),
   basedOn: z.string().optional(),
@@ -242,6 +277,10 @@ export const appSettings = pgTable("app_settings", {
   reconnectDaysAcquaintance: integer("reconnect_days_acquaintance")
     .notNull()
     .default(DEFAULT_RECONNECT_INTERVAL_DAYS.acquaintance),
+  // Off hides the whole lead pipeline — nav, dashboard strip, per-person
+  // pipeline card, outreach toggle, stage settings. The data stays put, so
+  // turning it back on restores everything untouched.
+  showLeads: boolean("show_leads").notNull().default(true),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -258,6 +297,7 @@ export const updateSettingsSchema = z
     reconnectDaysClose: reconnectDays.optional(),
     reconnectDaysFriend: reconnectDays.optional(),
     reconnectDaysAcquaintance: reconnectDays.optional(),
+    showLeads: z.boolean().optional(),
   })
   // Strict so an unknown field fails by name. Without it Zod strips it
   // silently, the object comes out empty, and the refine below reports

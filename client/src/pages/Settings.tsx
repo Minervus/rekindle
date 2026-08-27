@@ -11,6 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useStageConfigs } from "@/hooks/useStageConfigs";
 import { useTheme, type ThemeMode } from "@/hooks/useTheme";
+import { useLeadsEnabled } from "@/hooks/useLeadsEnabled";
 import {
   RELATIONSHIP_TIERS,
   RELATIONSHIP_TIER_LABELS,
@@ -420,9 +421,44 @@ function ReconnectCadenceSetting() {
   );
 }
 
+function LeadPipelineSetting() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: settings } = useQuery<AppSettings>({ queryKey: ["/api/settings"] });
+
+  const update = useMutation({
+    mutationFn: async (showLeads: boolean) => apiRequest("PATCH", "/api/settings", { showLeads }),
+    onSuccess: (_res, showLeads) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: showLeads ? "Lead pipeline shown" : "Lead pipeline hidden" });
+    },
+  });
+
+  if (!settings) return <Skeleton className="h-9 w-40" />;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant={settings.showLeads ? "default" : "outline"} onClick={() => update.mutate(true)} disabled={update.isPending}>
+          Shown
+        </Button>
+        <Button size="sm" variant={!settings.showLeads ? "default" : "outline"} onClick={() => update.mutate(false)} disabled={update.isPending}>
+          Hidden
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Hiding it removes the Leads tab, the dashboard pipeline strip, the pipeline card on each profile, and the
+        personal/outreach toggle when logging interactions. Nothing is deleted — every lead, stage and outreach touch is
+        still there when you switch it back on.
+      </p>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [addingStage, setAddingStage] = useState(false);
   const { stages, isLoading } = useStageConfigs();
+  const { enabled: leadsEnabled } = useLeadsEnabled();
   const queryClient = useQueryClient();
 
   const reorder = useMutation({
@@ -485,7 +521,16 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-lg">Lead pipeline</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LeadPipelineSetting />
+        </CardContent>
+      </Card>
+
+      <Card className={leadsEnabled ? "" : "hidden"}>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-lg">Pipeline stages</CardTitle>
           {!addingStage && (
